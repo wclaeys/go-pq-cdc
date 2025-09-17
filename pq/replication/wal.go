@@ -28,7 +28,7 @@ func ParseXLogData(buf []byte) (XLogData, error) {
 
 	xld.WALStart = pq.LSN(binary.BigEndian.Uint64(buf))
 	xld.ServerWALEnd = pq.LSN(binary.BigEndian.Uint64(buf[8:]))
-	xld.ServerTime = pgTimeToTime(int64(binary.BigEndian.Uint64(buf[16:])))
+	xld.ServerTime = pgTimeToTime(int64(binary.BigEndian.Uint64(buf[16:]))) //nolint:gosec // G115: bit-identical two's-complement reinterpretation
 	xld.WALData = buf[24:]
 
 	return xld, nil

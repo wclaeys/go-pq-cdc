@@ -3,10 +3,10 @@ package pq
 import (
 	"context"
 
-	"github.com/wclaeys/go-pq-cdc/internal/retry"
 	"github.com/go-playground/errors"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgproto3"
+	"github.com/wclaeys/go-pq-cdc/internal/retry"
 )
 
 type Connection interface {

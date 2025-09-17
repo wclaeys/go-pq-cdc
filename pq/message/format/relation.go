@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"encoding/binary"
 
-	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
 type Relation struct {

@@ -5,8 +5,8 @@ init: init/lint
 
 .PHONY: init/lint  init/vulnCheck
 init/lint:
-	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.59.1
-	go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@latest
+	go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.2
+	go install golang.org/x/tools/go/analysis/passes/fieldalignment/cmd/fieldalignment@v0.37.0
 
 .PHONY: init/vulnCheck
 init/vulnCheck:

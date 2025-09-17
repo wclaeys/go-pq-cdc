@@ -9,6 +9,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/go-playground/errors"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgproto3"
 	"github.com/wclaeys/go-pq-cdc/config"
 	"github.com/wclaeys/go-pq-cdc/internal/metric"
 	"github.com/wclaeys/go-pq-cdc/internal/slice"
@@ -16,9 +19,6 @@ import (
 	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
-	"github.com/go-playground/errors"
-	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgproto3"
 )
 
 var (
@@ -38,7 +38,7 @@ type ListenerFunc func(ctx *ListenerContext)
 
 type Message struct {
 	message  any
-	walStart int64
+	walStart pq.LSN
 }
 
 type Streamer interface {
@@ -178,7 +178,7 @@ func (s *stream) sink(ctx context.Context) {
 
 			s.messageCH <- &Message{
 				message:  decodedMsg,
-				walStart: int64(xld.WALStart),
+				walStart: xld.WALStart,
 			}
 		}
 	}
@@ -203,7 +203,7 @@ func (s *stream) process(ctx context.Context) {
 		lCtx := &ListenerContext{
 			Message: msg.message,
 			Ack: func() error {
-				pos := pq.LSN(msg.walStart)
+				pos := msg.walStart
 				s.system.UpdateXLogPos(pos)
 				logger.Debug("send stand by status update", "xLogPos", pos.String())
 				return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.system.LoadXLogPos()))
@@ -289,7 +289,11 @@ func AppendUint64(buf []byte, n uint64) []byte {
 }
 
 func timeToPgTime(t time.Time) uint64 {
-	return uint64(t.Unix()*1000000 + int64(t.Nanosecond())/1000 - microSecFromUnixEpochToY2K)
+	m := t.Unix()*1_000_000 + int64(t.Nanosecond())/1_000 - microSecFromUnixEpochToY2K
+	if m < 0 {
+		return 0
+	}
+	return uint64(m)
 }
 
 func isClosed[T any](ch <-chan T) bool {

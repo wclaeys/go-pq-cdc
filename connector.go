@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/go-playground/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/wclaeys/go-pq-cdc/config"
 	"github.com/wclaeys/go-pq-cdc/internal/http"
 	"github.com/wclaeys/go-pq-cdc/internal/metric"
@@ -18,8 +20,6 @@ import (
 	"github.com/wclaeys/go-pq-cdc/pq/publication"
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
 	"github.com/wclaeys/go-pq-cdc/pq/slot"
-	"github.com/go-playground/errors"
-	"github.com/prometheus/client_golang/prometheus"
 )
 
 type Connector interface {

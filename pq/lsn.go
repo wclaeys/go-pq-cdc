@@ -9,7 +9,7 @@ import (
 type LSN uint64
 
 func (lsn LSN) String() string {
-	return fmt.Sprintf("%X/%X", uint32(lsn>>32), uint32(lsn))
+	return fmt.Sprintf("%X/%08X", (uint64(lsn)>>32)&0xFFFFFFFF, uint64(lsn)&0xFFFFFFFF)
 }
 
 func ParseLSN(s string) (LSN, error) {

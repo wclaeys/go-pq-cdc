@@ -4,11 +4,11 @@ import (
 	"context"
 	goerrors "errors"
 
-	"github.com/wclaeys/go-pq-cdc/logger"
-	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/go-playground/errors"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgtype"
+	"github.com/wclaeys/go-pq-cdc/logger"
+	"github.com/wclaeys/go-pq-cdc/pq"
 )
 
 var (

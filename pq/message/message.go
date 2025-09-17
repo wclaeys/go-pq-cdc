@@ -3,8 +3,8 @@ package message
 import (
 	"time"
 
-	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 )
 
 const (
