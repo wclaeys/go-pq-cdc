@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 	"github.com/stretchr/testify/assert"
+	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
 func TestInsert_New(t *testing.T) {
@@ -48,8 +48,8 @@ func TestInsert_New(t *testing.T) {
 		TupleData: &tuple.Data{
 			ColumnNumber: 2,
 			Columns: tuple.DataColumns{
-				{DataType: 116, Length: 3, Data: []byte{'6', '0', '5'}},
-				{DataType: 116, Length: 3, Data: []byte{'f', 'o', 'o'}},
+				&tuple.DataColumn{DataType: 116, Length: 3, Data: []byte{'6', '0', '5'}},
+				&tuple.DataColumn{DataType: 116, Length: 3, Data: []byte{'f', 'o', 'o'}},
 			},
 			SkipByte: 24,
 		},

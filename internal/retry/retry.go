@@ -3,28 +3,28 @@ package retry
 import (
 	"time"
 
-	"github.com/avast/retry-go/v4"
+	retrygo "github.com/avast/retry-go/v4"
 )
 
-var DefaultOptions = []retry.Option{
-	retry.LastErrorOnly(true),
-	retry.Delay(time.Second),
-	retry.DelayType(retry.FixedDelay),
+var DefaultOptions = []retrygo.Option{
+	retrygo.LastErrorOnly(true),
+	retrygo.Delay(time.Second),
+	retrygo.DelayType(retrygo.FixedDelay),
 }
 
 type Config[T any] struct {
 	If      func(err error) bool
-	Options []retry.Option
+	Options []retrygo.Option
 }
 
-func (rc Config[T]) Do(f retry.RetryableFuncWithData[T]) (T, error) {
-	return retry.DoWithData(f, rc.Options...)
+func (rc Config[T]) Do(f retrygo.RetryableFuncWithData[T]) (T, error) {
+	return retrygo.DoWithData(f, rc.Options...)
 }
 
 func OnErrorConfig[T any](attemptCount uint, check func(error) bool) Config[T] {
 	cfg := Config[T]{
 		If:      check,
-		Options: []retry.Option{retry.Attempts(attemptCount)},
+		Options: []retrygo.Option{retrygo.Attempts(attemptCount)},
 	}
 	cfg.Options = append(cfg.Options, DefaultOptions...)
 	return cfg

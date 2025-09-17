@@ -4,8 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 	"github.com/stretchr/testify/assert"
+	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
 func TestDelete_New(t *testing.T) {
@@ -49,12 +49,12 @@ func TestDelete_New(t *testing.T) {
 		OldTupleData: &tuple.Data{
 			ColumnNumber: 2,
 			Columns: tuple.DataColumns{
-				{
+				&tuple.DataColumn{
 					DataType: 116,
 					Length:   3,
 					Data:     []byte("645"),
 				},
-				{
+				&tuple.DataColumn{
 					DataType: 116,
 					Length:   3,
 					Data:     []byte("foo"),
