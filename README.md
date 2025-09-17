@@ -1,4 +1,4 @@
-# go-pq-cdc [![Go Reference](https://pkg.go.dev/badge/github.com/Trendyol/go-dcp.svg)](https://pkg.go.dev/github.com/Trendyol/go-pq-cdc) [![Go Report Card](https://goreportcard.com/badge/github.com/Trendyol/go-pq-cdc)](https://goreportcard.com/report/github.com/Trendyol/go-pq-cdc) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Trendyol/go-pq-cdc/badge)](https://scorecard.dev/viewer/?uri=github.com/Trendyol/go-pq-cdc)
+# go-pq-cdc [![Go Reference](https://pkg.go.dev/badge/github.com/wclaeys/go-dcp.svg)](https://pkg.go.dev/github.com/wclaeys/go-pq-cdc) [![Go Report Card](https://goreportcard.com/badge/github.com/wclaeys/go-pq-cdc)](https://goreportcard.com/report/github.com/wclaeys/go-pq-cdc) [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/wclaeys/go-pq-cdc/badge)](https://scorecard.dev/viewer/?uri=github.com/wclaeys/go-pq-cdc)
 
 go-pq-cdc is designed to provide efficient and lightweight Change Data Capture (CDC) for PostgreSQL databases.
 The architecture leverages PostgreSQL's built-in logical replication capabilities to capture changes in the database and
@@ -30,7 +30,7 @@ Our main goal is to build a cdc base library for faster and stateful systems.
 ### Usage
 
 ```sh
-go get github.com/Trendyol/go-pq-cdc
+go get github.com/wclaeys/go-pq-cdc
 ```
 
 ```go
@@ -38,12 +38,12 @@ package main
 
 import (
 	"context"
-	cdc "github.com/Trendyol/go-pq-cdc"
-	"github.com/Trendyol/go-pq-cdc/config"
-	"github.com/Trendyol/go-pq-cdc/pq/message/format"
-	"github.com/Trendyol/go-pq-cdc/pq/publication"
-	"github.com/Trendyol/go-pq-cdc/pq/replication"
-	"github.com/Trendyol/go-pq-cdc/pq/slot"
+	cdc "github.com/wclaeys/go-pq-cdc"
+	"github.com/wclaeys/go-pq-cdc/config"
+	"github.com/wclaeys/go-pq-cdc/pq/message/format"
+	"github.com/wclaeys/go-pq-cdc/pq/publication"
+	"github.com/wclaeys/go-pq-cdc/pq/replication"
+	"github.com/wclaeys/go-pq-cdc/pq/slot"
 	"log/slog"
 	"os"
 )

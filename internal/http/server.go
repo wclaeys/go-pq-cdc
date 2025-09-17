@@ -8,9 +8,9 @@ import (
 	"net/http/pprof"
 	"time"
 
-	"github.com/Trendyol/go-pq-cdc/config"
-	"github.com/Trendyol/go-pq-cdc/internal/metric"
-	"github.com/Trendyol/go-pq-cdc/logger"
+	"github.com/wclaeys/go-pq-cdc/config"
+	"github.com/wclaeys/go-pq-cdc/internal/metric"
+	"github.com/wclaeys/go-pq-cdc/logger"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
