@@ -5,7 +5,7 @@ The architecture leverages PostgreSQL's built-in logical replication capabilitie
 stream these changes to downstream systems, such as Kafka, Elasticsearch etc. The entire system is written in Golang,
 ensuring low resource consumption and high performance.
 
-[Debezium vs go-pq-cdc benchmark](./benchmark)
+[Debezium vs go-pq-cdc benchmark](https://github.com/Trendyol/go-pq-cdc/tree/main/benchmark)
 
 ### Contents
 
@@ -112,11 +112,11 @@ func Handler(ctx *replication.ListenerContext) {
 
 ### Examples
 
-* [Simple](./example/simple)
-* [Simple File Config](./example/simple-file-config)
+* [Simple](https://github.com/Trendyol/go-pq-cdc/tree/main/example/simple)
+* [Simple File Config](https://github.com/Trendyol/go-pq-cdc/tree/main/example/simple-file-config)
 * [PostgreSQL to Elasticsearch](https://github.com/Trendyol/go-pq-cdc-elasticsearch/tree/main/example/simple)
 * [PostgreSQL to Kafka](https://github.com/Trendyol/go-pq-cdc-kafka/tree/main/example/simple)
-* [PostgreSQL to PostgreSQL](./example/postgresql)
+* [PostgreSQL to PostgreSQL](https://github.com/Trendyol/go-pq-cdc/tree/main/example/postgresql)
 
 ### Availability
 
