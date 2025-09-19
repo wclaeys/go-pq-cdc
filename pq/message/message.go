@@ -43,6 +43,8 @@ func New(data []byte, serverTime time.Time, relation map[uint32]*format.Relation
 		return format.NewUpdate(data, streamedTransaction, relation, serverTime)
 	case DeleteByte:
 		return format.NewDelete(data, streamedTransaction, relation, serverTime)
+	case LogicalByte:
+		return format.NewLogicalMessage(data, streamedTransaction, serverTime)
 	case StreamStopByte, StreamAbortByte, StreamCommitByte:
 		streamedTransaction = false
 		return nil, nil

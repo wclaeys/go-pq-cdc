@@ -3,13 +3,6 @@ package integration
 import (
 	"context"
 	"fmt"
-	"github.com/wclaeys/go-pq-cdc/config"
-	"github.com/wclaeys/go-pq-cdc/pq"
-	"github.com/go-playground/errors"
-	_ "github.com/golang-migrate/migrate/v4/database/postgres"
-	_ "github.com/golang-migrate/migrate/v4/source/file"
-	"github.com/testcontainers/testcontainers-go"
-	"github.com/testcontainers/testcontainers-go/wait"
 	"io"
 	"log"
 	"net/http"
@@ -18,6 +11,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-playground/errors"
+	_ "github.com/golang-migrate/migrate/v4/database/postgres"
+	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/wclaeys/go-pq-cdc/config"
+	"github.com/wclaeys/go-pq-cdc/pq"
 )
 
 var (
@@ -213,6 +214,12 @@ func pgExec(ctx context.Context, conn pq.Connection, command string) error {
 	}
 
 	return nil
+}
+
+func fetchLogicalMessageOpMetric() (int, error) {
+	m, err := fetchMetrics("go_pq_cdc_logical_message_total")
+	mi, _ := strconv.Atoi(m)
+	return mi, err
 }
 
 func fetchDeleteOpMetric() (int, error) {
