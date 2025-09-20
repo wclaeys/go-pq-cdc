@@ -42,6 +42,7 @@ lint: init/lint
 	@echo 'Formatting code...'
 	fieldalignment -fix ./...
 	golangci-lint run -c .golangci.yml --timeout=5m -v --fix
+	gofmt -s -w .
 
 .PHONY: build
 build/linux:

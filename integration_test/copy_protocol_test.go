@@ -2,13 +2,13 @@ package integration
 
 import (
 	"context"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/stretchr/testify/assert"
 	cdc "github.com/wclaeys/go-pq-cdc"
 	"github.com/wclaeys/go-pq-cdc/config"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/stretchr/testify/assert"
 	"sync/atomic"
 	"testing"
 	"time"

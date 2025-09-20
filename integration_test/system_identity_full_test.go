@@ -3,11 +3,11 @@ package integration
 import (
 	"context"
 	"fmt"
+	"github.com/stretchr/testify/assert"
 	cdc "github.com/wclaeys/go-pq-cdc"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 	"github.com/wclaeys/go-pq-cdc/pq/publication"
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
 )
