@@ -27,7 +27,7 @@ var (
 )
 
 var (
-	PostgresVersion = "POSTGRES_VERSION"
+	PostgresVersion = "POSTGRES_TEST_IMAGE"
 	defaultVersion  = "16-alpine"
 )
 

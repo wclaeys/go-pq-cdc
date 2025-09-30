@@ -10,10 +10,10 @@ import (
 // https://www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html
 type Truncate struct {
 	MessageTime     time.Time
-	XID             uint32 // present only for streamed transactions (protocol v2+)
-	Cascade         bool   // option bit 1
-	RestartIdentity bool   // option bit 2
 	Relations       []TruncateRelation
+	XID             uint32
+	Cascade         bool
+	RestartIdentity bool
 }
 
 type TruncateRelation struct {
@@ -30,7 +30,6 @@ func NewTruncate(
 	relation map[uint32]*Relation,
 	serverTime time.Time,
 ) (*Truncate, error) {
-
 	skipByte := 1
 	t := &Truncate{MessageTime: serverTime}
 
@@ -47,7 +46,7 @@ func NewTruncate(
 	if len(data) < skipByte+4 {
 		return nil, fmt.Errorf("truncate: missing relations count")
 	}
-	n := int(int32(binary.BigEndian.Uint32(data[skipByte : skipByte+4])))
+	n := int(binary.BigEndian.Uint32(data[skipByte : skipByte+4]))
 	skipByte += 4
 
 	// Options (int8): 1 = CASCADE, 2 = RESTART IDENTITY
