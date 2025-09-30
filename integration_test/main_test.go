@@ -222,6 +222,12 @@ func fetchLogicalMessageOpMetric() (int, error) {
 	return mi, err
 }
 
+func fetchTruncateOpMetric() (int, error) {
+	m, err := fetchMetrics("go_pq_cdc_truncate_total")
+	mi, _ := strconv.Atoi(m)
+	return mi, err
+}
+
 func fetchDeleteOpMetric() (int, error) {
 	m, err := fetchMetrics("go_pq_cdc_delete_total")
 	mi, _ := strconv.Atoi(m)
@@ -257,8 +263,8 @@ func fetchMetrics(metricName string) (string, error) {
 	}
 
 	bodyStr := string(body)
-	lines := strings.Split(bodyStr, "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(bodyStr, "\n")
+	for line := range lines {
 		if strings.HasPrefix(line, metricName) {
 			parts := strings.Fields(line)
 			if len(parts) == 2 {

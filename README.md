@@ -173,6 +173,8 @@ the `/metrics` endpoint.
 | go_pq_cdc_update_total                              | The total number of `UPDATE` operations captured on specific tables.                                  | slot_name, host| Counter    |
 | go_pq_cdc_delete_total                              | The total number of `DELETE` operations captured on specific tables.                                  | slot_name, host| Counter    |
 | go_pq_cdc_insert_total                              | The total number of `INSERT` operations captured on specific tables.                                  | slot_name, host| Counter    |
+| go_pq_cdc_logical_message_total                     | The total number of logical messages captured on specific tables.                                  | slot_name, host| Counter    |
+| go_pq_cdc_truncate_total                     | The total number of `TRUNCATE` operations captured on specific tables.                                  | slot_name, host| Counter    |
 | go_pq_cdc_cdc_latency_current                       | The current latency in capturing data changes from PostgreSQL.                                        | slot_name, host| Gauge      |
 | go_pq_cdc_process_latency_current                   | The current latency in processing the captured data changes.                                          | slot_name, host| Gauge      |
 | go_pq_cdc_replication_slot_slot_confirmed_flush_lsn | The last confirmed flush Log Sequence Number (LSN) in the PostgreSQL replication slot.                | slot_name, host| Gauge      |

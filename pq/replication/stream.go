@@ -217,6 +217,8 @@ func (s *stream) process(ctx context.Context) {
 			s.metric.DeleteOpIncrement(1)
 		case *format.Update:
 			s.metric.UpdateOpIncrement(1)
+		case *format.Truncate:
+			s.metric.TruncateOpIncrement(1)
 		case *format.LogicalMessage:
 			s.metric.LogicalMessageOpIncrement(1)
 		}
