@@ -29,23 +29,16 @@ const (
 	StandbyStatusUpdateByteID = 'r'
 )
 
-type ListenerContext struct {
-	Message any
-	Ack     func() error
-}
+type ListenerFunc func(ack Acknowledger, message format.WALMessage)
 
-type ListenerFunc func(ctx *ListenerContext)
-
-type Message struct {
-	message  any
-	walStart pq.LSN
-}
+type Acknowledger func(lsn pq.LSN) error
 
 type Streamer interface {
 	Open(ctx context.Context) error
 	Close(ctx context.Context)
 	GetSystemInfo() *pq.IdentifySystemResult
 	GetMetric() metric.Metric
+	Acknowledge(lsn pq.LSN) error
 }
 
 type stream struct {
@@ -53,27 +46,44 @@ type stream struct {
 	metric       metric.Metric
 	system       *pq.IdentifySystemResult
 	relation     map[uint32]*format.Relation
-	messageCH    chan *Message
+	messageCH    chan format.WALMessage
 	listenerFunc ListenerFunc
 	sinkEnd      chan struct{}
 	mu           *sync.RWMutex
+	acknowledger func(pos pq.LSN) error
 	config       config.Config
 	lastXLogPos  pq.LSN
 	closed       atomic.Bool
 }
 
-func NewStream(conn pq.Connection, cfg config.Config, m metric.Metric, system *pq.IdentifySystemResult, listenerFunc ListenerFunc) Streamer {
-	return &stream{
+func NewStream(ctx context.Context, conn pq.Connection, cfg config.Config, m metric.Metric, system *pq.IdentifySystemResult, listenerFunc ListenerFunc) Streamer {
+	stream := &stream{
 		conn:         conn,
 		metric:       m,
 		system:       system,
 		config:       cfg,
 		relation:     make(map[uint32]*format.Relation),
-		messageCH:    make(chan *Message, 1000),
+		messageCH:    make(chan format.WALMessage, 1000),
 		listenerFunc: listenerFunc,
 		lastXLogPos:  10,
 		sinkEnd:      make(chan struct{}, 1),
 		mu:           &sync.RWMutex{},
+	}
+	stream.acknowledger = stream.createAcknowledger(ctx)
+	return stream
+}
+
+func (s *stream) Acknowledge(lsn pq.LSN) error {
+	return s.acknowledger(lsn)
+}
+
+func (s *stream) createAcknowledger(ctx context.Context) Acknowledger {
+	return func(pos pq.LSN) error {
+		s.system.UpdateXLogPos(pos)
+		if logger.IsDebugEnabled() {
+			logger.Debug("send stand by status update", "xLogPos", pos.String())
+		}
+		return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.system.LoadXLogPos()))
 	}
 }
 
@@ -116,26 +126,36 @@ func (s *stream) sink(ctx context.Context) {
 	logger.Info("postgres message sink started")
 
 	var corruptedConn bool
+	timeout := 300 * time.Millisecond
 
 	for {
-		msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
+		if ctx.Err() != nil {
+			return // fast exit on cancellation/shutdown
+		}
+
+		msgCtx, cancel := context.WithTimeout(ctx, timeout)
 		rawMsg, err := s.conn.ReceiveMessage(msgCtx)
 		cancel()
+
 		if err != nil {
 			if s.closed.Load() {
 				logger.Info("stream stopped")
 				break
 			}
 
+			// Fast-path: just a read timeout? send standby status and continue.
 			if pgconn.Timeout(err) {
 				err = SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
 				if err != nil {
 					logger.Error("send stand by status update", "error", err)
 					break
 				}
-				logger.Debug("send stand by status update")
+				if logger.IsDebugEnabled() {
+					logger.Debug("send stand by status update")
+				}
 				continue
 			}
+			// Other errors
 			logger.Error("receive message error", "error", err)
 			corruptedConn = true
 			break
@@ -149,7 +169,7 @@ func (s *stream) sink(ctx context.Context) {
 
 		msg, ok := rawMsg.(*pgproto3.CopyData)
 		if !ok {
-			logger.Warn(fmt.Sprintf("received undexpected message: %T", rawMsg))
+			logger.Warn(fmt.Sprintf("received unexpected message: %T", rawMsg))
 			continue
 		}
 
@@ -165,23 +185,26 @@ func (s *stream) sink(ctx context.Context) {
 				continue
 			}
 
-			logger.Debug("wal received", "walData", string(xld.WALData), "walDataByte", slice.ConvertToInt(xld.WALData), "walStart", xld.WALStart, "walEnd", xld.ServerWALEnd, "serverTime", xld.ServerTime)
+			if logger.IsDebugEnabled() {
+				logger.Debug("wal received", "walData", string(xld.WALData), "walDataByte", slice.ConvertToInt(xld.WALData), "walStart", xld.WALStart, "walEnd", xld.ServerWALEnd, "serverTime", xld.ServerTime)
+			}
 
-			s.metric.SetCDCLatency(time.Now().UTC().Sub(xld.ServerTime).Nanoseconds())
+			s.metric.SetCDCLatency(max(time.Since(xld.ServerTime), time.Duration(0)).Nanoseconds())
 
-			var decodedMsg any
-			decodedMsg, err = message.New(xld.WALData, xld.ServerTime, s.relation)
+			var decodedMsg format.WALMessage
+			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation, s.config.Message)
 			if err != nil || decodedMsg == nil {
-				logger.Debug("wal data message parsing error", "error", err)
+				if logger.IsDebugEnabled() {
+					logger.Debug("wal data message parsing error", "error", err)
+				}
 				continue
 			}
 
-			s.messageCH <- &Message{
-				message:  decodedMsg,
-				walStart: xld.WALStart,
-			}
+			s.messageCH <- decodedMsg
 		}
 	}
+
+	// Teardown
 	s.sinkEnd <- struct{}{}
 	if !s.closed.Load() {
 		s.Close(ctx)
@@ -191,8 +214,12 @@ func (s *stream) sink(ctx context.Context) {
 	}
 }
 
+var _baseTime = time.Now()
+
 func (s *stream) process(ctx context.Context) {
 	logger.Info("postgres message process started")
+
+	acknowledger := s.createAcknowledger(ctx)
 
 	for {
 		msg, ok := <-s.messageCH
@@ -200,17 +227,7 @@ func (s *stream) process(ctx context.Context) {
 			break
 		}
 
-		lCtx := &ListenerContext{
-			Message: msg.message,
-			Ack: func() error {
-				pos := msg.walStart
-				s.system.UpdateXLogPos(pos)
-				logger.Debug("send stand by status update", "xLogPos", pos.String())
-				return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.system.LoadXLogPos()))
-			},
-		}
-
-		switch lCtx.Message.(type) {
+		switch msg.(type) {
 		case *format.Insert:
 			s.metric.InsertOpIncrement(1)
 		case *format.Delete:
@@ -223,9 +240,9 @@ func (s *stream) process(ctx context.Context) {
 			s.metric.LogicalMessageOpIncrement(1)
 		}
 
-		start := time.Now().UTC()
-		s.listenerFunc(lCtx)
-		s.metric.SetProcessLatency(time.Since(start).Nanoseconds())
+		start := time.Since(_baseTime).Nanoseconds()
+		s.listenerFunc(acknowledger, msg)
+		s.metric.SetProcessLatency(time.Since(_baseTime).Nanoseconds() - start)
 	}
 }
 
@@ -273,7 +290,7 @@ func SendStandbyStatusUpdate(_ context.Context, conn pq.Connection, walWritePosi
 	data = AppendUint64(data, walWritePosition)
 	data = AppendUint64(data, walWritePosition)
 	data = AppendUint64(data, walWritePosition)
-	data = AppendUint64(data, timeToPgTime(time.Now()))
+	data = AppendUint64(data, nowPgTime())
 	data = append(data, 0)
 
 	cd := &pgproto3.CopyData{Data: data}
@@ -292,12 +309,13 @@ func AppendUint64(buf []byte, n uint64) []byte {
 	return buf
 }
 
-func timeToPgTime(t time.Time) uint64 {
-	m := t.Unix()*1_000_000 + int64(t.Nanosecond())/1_000 - microSecFromUnixEpochToY2K
-	if m < 0 {
+// Fast path for "now"
+func nowPgTime() uint64 {
+	mu := time.Now().UnixMicro() - y2kUnixMicro
+	if mu < 0 {
 		return 0
 	}
-	return uint64(m)
+	return uint64(mu)
 }
 
 func isClosed[T any](ch <-chan T) bool {

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
@@ -25,11 +26,13 @@ type Update struct {
 	OID            uint32
 	XID            uint32
 	OldTupleType   uint8
+	lsn            pq.LSN
 }
 
-func NewUpdate(data []byte, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Update, error) {
+func NewUpdate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Update, error) {
 	msg := &Update{
 		MessageTime: serverTime,
+		lsn:         lsn,
 	}
 	if err := msg.decode(data, streamedTransaction); err != nil {
 		return nil, err
@@ -43,21 +46,26 @@ func NewUpdate(data []byte, streamedTransaction bool, relation map[uint32]*Relat
 	msg.TableNamespace = rel.Namespace
 	msg.TableName = rel.Name
 
-	var err error
+	if autoDecodeTupleData {
+		var err error
+		if msg.OldTupleData != nil {
+			msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
+			if err != nil {
+				return nil, err
+			}
+		}
 
-	if msg.OldTupleData != nil {
-		msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
+		msg.NewDecoded, err = msg.NewTupleData.DecodeWithColumn(rel.Columns)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	msg.NewDecoded, err = msg.NewTupleData.DecodeWithColumn(rel.Columns)
-	if err != nil {
-		return nil, err
-	}
-
 	return msg, nil
+}
+
+func (m *Update) GetLSN() pq.LSN {
+	return m.lsn
 }
 
 func (m *Update) decode(data []byte, streamedTransaction bool) error {

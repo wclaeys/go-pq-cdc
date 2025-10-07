@@ -28,6 +28,7 @@ type Connector interface {
 	Close()
 	GetConfig() *config.Config
 	SetMetricCollectors(collectors ...prometheus.Collector)
+	Acknowledge(lsn pq.LSN) error
 }
 
 type connector struct {
@@ -94,7 +95,7 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 
 	m := metric.NewMetric(cfg.Slot.Name)
 
-	stream := replication.NewStream(conn, cfg, m, &system, listenerFunc)
+	stream := replication.NewStream(ctx, conn, cfg, m, &system, listenerFunc)
 
 	sl, err := slot.NewSlot(ctx, cfg.DSN(), cfg.Slot, m, stream.(slot.XLogUpdater))
 	if err != nil {
@@ -151,6 +152,10 @@ func (c *connector) Start(ctx context.Context) {
 	logger.Debug("cancel channel triggered")
 }
 
+func (c *connector) Acknowledge(lsn pq.LSN) error {
+	return c.stream.Acknowledge(lsn)
+}
+
 func (c *connector) WaitUntilReady(ctx context.Context) error {
 	select {
 	case <-c.readyCh:
@@ -195,7 +200,9 @@ func (c *connector) CaptureSlot(ctx context.Context) {
 			break
 		}
 
-		logger.Debug("capture slot", "slotInfo", info)
+		if logger.IsDebugEnabled() {
+			logger.Debug("capture slot", "slotInfo", info)
+		}
 	}
 }
 

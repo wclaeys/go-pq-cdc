@@ -2,6 +2,10 @@ package integration
 
 import (
 	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
@@ -9,9 +13,6 @@ import (
 	"github.com/wclaeys/go-pq-cdc/config"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
-	"sync/atomic"
-	"testing"
-	"time"
 )
 
 func TestCopyProtocol(t *testing.T) {
@@ -29,13 +30,13 @@ func TestCopyProtocol(t *testing.T) {
 		t.FailNow()
 	}
 
-	messageCh := make(chan *replication.ListenerContext)
+	messageCh := make(chan format.WALMessage)
 	totalCounter := atomic.Int64{}
-	handlerFunc := func(ctx *replication.ListenerContext) {
-		switch ctx.Message.(type) {
+	handlerFunc := func(ack replication.Acknowledger, walMessage format.WALMessage) {
+		switch walMessage.(type) {
 		case *format.Insert, *format.Delete, *format.Update:
 			totalCounter.Add(1)
-			messageCh <- ctx
+			messageCh <- walMessage
 		}
 	}
 
@@ -93,14 +94,14 @@ func TestCopyProtocol(t *testing.T) {
 
 		for {
 			m := <-messageCh
-			if v, ok := m.Message.(*format.Insert); ok {
+			if v, ok := m.(*format.Insert); ok {
 				if v.Decoded["id"].(int32) == 16 {
 					connector.Close()
 					break
 				}
 			}
 
-			assert.NoError(t, m.Ack())
+			assert.NoError(t, connector.Acknowledge(m.GetLSN()))
 		}
 	})
 
@@ -113,7 +114,7 @@ func TestCopyProtocol(t *testing.T) {
 
 		for {
 			m := <-messageCh
-			if v, ok := m.Message.(*format.Insert); ok {
+			if v, ok := m.(*format.Insert); ok {
 				if v.Decoded["id"].(int32) == 30 {
 					break
 				}

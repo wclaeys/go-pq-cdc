@@ -1,12 +1,17 @@
 package logger
 
 import (
+	"context"
 	"log/slog"
 	"os"
 	"sync"
 )
 
-var _default Logger
+var (
+	_default     Logger
+	once         sync.Once
+	debugEnabled bool // set once in InitLogger, then read-only
+)
 
 type Logger interface {
 	Debug(msg string, args ...any)
@@ -15,11 +20,19 @@ type Logger interface {
 	Error(msg string, args ...any)
 }
 
-var once sync.Once
-
 func InitLogger(l Logger) {
 	once.Do(func() {
 		_default = l
+
+		// Precompute and cache "is debug enabled?" once at init.
+		type leveled interface {
+			Enabled(ctx context.Context, level slog.Level) bool
+		}
+		if ll, ok := any(l).(leveled); ok {
+			debugEnabled = ll.Enabled(context.Background(), slog.LevelDebug)
+		} else {
+			debugEnabled = false
+		}
 	})
 }
 
@@ -37,6 +50,10 @@ func Warn(msg string, args ...any) {
 
 func Error(msg string, args ...any) {
 	_default.Error(msg, args...)
+}
+
+func IsDebugEnabled() bool {
+	return debugEnabled
 }
 
 func NewSlog(logLevel slog.Level) Logger {

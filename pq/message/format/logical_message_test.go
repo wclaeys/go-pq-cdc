@@ -32,7 +32,7 @@ func TestNewLogicalMessage_NonStreamed_OK(t *testing.T) {
 	content := []byte{0xDE, 0xAD, 0xBE, 0xEF}
 	raw := buildM(t, false, 0, 1, 0x0102030405060708, "cdc.orders", content)
 
-	msg, err := NewLogicalMessage(raw, false, now)
+	msg, err := NewLogicalMessage(raw, 0, false, now)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestNewLogicalMessage_Streamed_OK(t *testing.T) {
 	content := []byte("hello")
 	raw := buildM(t, true, 42, 0, 0xAABBCCDDEEFF0011, "it.cdc", content)
 
-	msg, err := NewLogicalMessage(raw, true, now)
+	msg, err := NewLogicalMessage(raw, 0, true, now)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -89,14 +89,14 @@ func TestNewLogicalMessage_Errors(t *testing.T) {
 	now := time.Now()
 
 	// 1) wrong tag
-	if _, err := NewLogicalMessage([]byte("X"), false, now); err == nil {
+	if _, err := NewLogicalMessage([]byte("X"), 0, false, now); err == nil {
 		t.Error("expected error for invalid tag")
 	}
 
 	// 2) streamed but too short for xid
 	{
 		raw := []byte{'M', 0x00, 0x00, 0x01} // only 3 bytes of xid
-		if _, err := NewLogicalMessage(raw, true, now); err == nil {
+		if _, err := NewLogicalMessage(raw, 0, true, now); err == nil {
 			t.Error("expected error for short xid")
 		}
 	}
@@ -104,7 +104,7 @@ func TestNewLogicalMessage_Errors(t *testing.T) {
 	// 3) short header (flags+lsn)
 	{
 		raw := []byte{'M', 0x01} // flags only, missing lsn
-		if _, err := NewLogicalMessage(raw, false, now); err == nil {
+		if _, err := NewLogicalMessage(raw, 0, false, now); err == nil {
 			t.Error("expected error for short header")
 		}
 	}
@@ -116,7 +116,7 @@ func TestNewLogicalMessage_Errors(t *testing.T) {
 		b.WriteByte(1)                                    // flags
 		_ = binary.Write(&b, binary.BigEndian, uint64(1)) // lsn
 		b.WriteString("no-nul")                           // missing NUL
-		if _, err := NewLogicalMessage(b.Bytes(), false, now); err == nil {
+		if _, err := NewLogicalMessage(b.Bytes(), 0, false, now); err == nil {
 			t.Error("expected error for unterminated prefix")
 		}
 	}
@@ -131,7 +131,7 @@ func TestNewLogicalMessage_Errors(t *testing.T) {
 		b.WriteByte(0)
 		_ = binary.Write(&b, binary.BigEndian, uint32(10)) // claims 10 bytes
 		b.Write([]byte("12345"))                           // only 5
-		if _, err := NewLogicalMessage(b.Bytes(), false, now); err == nil {
+		if _, err := NewLogicalMessage(b.Bytes(), 0, false, now); err == nil {
 			t.Error("expected error for short content")
 		}
 	}

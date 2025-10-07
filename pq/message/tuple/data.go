@@ -7,6 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+// Tuple data types:
+// https://www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html#PROTOCOL-LOGICALREP-MESSAGE-FORMATS-TUPLEDATA
 const (
 	DataTypeNull   = uint8('n')
 	DataTypeToast  = uint8('u')
@@ -44,14 +46,15 @@ func NewData(data []byte, tupleDataType uint8, skipByteLength int) (*Data, error
 	skipByteLength++
 
 	d := &Data{}
-	d.Decode(data, skipByteLength)
-
-	return d, nil
+	return d.Decode(data, skipByteLength)
 }
 
-func (d *Data) Decode(data []byte, skipByteLength int) {
+func (d *Data) Decode(data []byte, skipByteLength int) (*Data, error) {
 	d.ColumnNumber = binary.BigEndian.Uint16(data[skipByteLength:])
 	skipByteLength += 2
+
+	// Preallocate slice to avoid growth reallocations
+	d.Columns = make(DataColumns, 0, d.ColumnNumber)
 
 	for range d.ColumnNumber {
 		col := new(DataColumn)
@@ -60,19 +63,27 @@ func (d *Data) Decode(data []byte, skipByteLength int) {
 
 		switch col.DataType {
 		case DataTypeNull, DataTypeToast:
+			// no payload
 		case DataTypeText, DataTypeBinary:
 			col.Length = binary.BigEndian.Uint32(data[skipByteLength:])
 			skipByteLength += 4
 
-			col.Data = make([]byte, int(col.Length))
-			copy(col.Data, data[skipByteLength:])
-
+			// Zero-copy slice
+			col.Data = data[skipByteLength : skipByteLength+int(col.Length)]
+			// previously:
+			// col.Data = make([]byte, int(col.Length))
+			// copy(col.Data, data[skipByteLength:])
 			skipByteLength += int(col.Length)
+
+		default:
+			return nil, errors.Newf("unknown tuple data type %q at offset %d", col.DataType, skipByteLength-1)
 		}
 
 		d.Columns = append(d.Columns, col)
 	}
 	d.SkipByte = skipByteLength
+
+	return d, nil
 }
 
 func (d *Data) DecodeWithColumn(columns []RelationColumn) (map[string]any, error) {
@@ -94,7 +105,7 @@ func (d *Data) DecodeWithColumn(columns []RelationColumn) (map[string]any, error
 	return decoded, nil
 }
 
-func decodeTextColumnData(data []byte, dataType uint32) (interface{}, error) {
+func decodeTextColumnData(data []byte, dataType uint32) (any, error) {
 	if dt, ok := typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(typeMap, dataType, pgtype.TextFormatCode, data)
 	}

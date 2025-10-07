@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
@@ -17,11 +18,13 @@ type Delete struct {
 	OID            uint32
 	XID            uint32
 	OldTupleType   uint8
+	lsn            pq.LSN
 }
 
-func NewDelete(data []byte, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Delete, error) {
+func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Delete, error) {
 	msg := &Delete{
 		MessageTime: serverTime,
+		lsn:         lsn,
 	}
 	if err := msg.decode(data, streamedTransaction); err != nil {
 		return nil, err
@@ -35,14 +38,19 @@ func NewDelete(data []byte, streamedTransaction bool, relation map[uint32]*Relat
 	msg.TableNamespace = rel.Namespace
 	msg.TableName = rel.Name
 
-	var err error
-
-	msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
-	if err != nil {
-		return nil, err
+	if autoDecodeTupleData {
+		var err error
+		msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return msg, nil
+}
+
+func (m *Delete) GetLSN() pq.LSN {
+	return m.lsn
 }
 
 func (m *Delete) decode(data []byte, streamedTransaction bool) error {

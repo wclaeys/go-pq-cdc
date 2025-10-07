@@ -75,7 +75,9 @@ func (c *Publication) GetReplicaIdentities(ctx context.Context) ([]Table, error)
 
 	query := fmt.Sprintf("SELECT relname AS table_name, n.nspname AS schema_name, relreplident AS replica_identity FROM pg_class c JOIN pg_namespace n ON c.relnamespace = n.oid WHERE concat(n.nspname, '.', c.relname) IN (%s)", strings.Join(tableNames, ", "))
 
-	logger.Debug("executing query: ", query)
+	if logger.IsDebugEnabled() {
+		logger.Debug("executing query: ", query)
+	}
 
 	resultReader := c.conn.Exec(ctx, query)
 	results, err := resultReader.ReadAll()

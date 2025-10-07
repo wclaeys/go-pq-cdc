@@ -9,7 +9,14 @@ import (
 )
 
 func TestDelete_New(t *testing.T) {
-	data := []byte{68, 0, 0, 64, 6, 79, 0, 2, 116, 0, 0, 0, 3, 54, 52, 53, 116, 0, 0, 0, 3, 102, 111, 111}
+	// The following data represents a delete event:
+	// For the old tuple: id=645, name=foo
+	data := []byte{
+		68, 0, 0, 64, 6, // header
+		79, 0, 2, // old tuple type, 2 columns
+		116, 0, 0, 0, 3, 54, 52, 53, // old id: type=116, len=3, data="645"
+		116, 0, 0, 0, 3, 102, 111, 111, // old name: type=116, len=3, data="foo"
+	}
 
 	rel := map[uint32]*Relation{
 		16390: {
@@ -37,7 +44,7 @@ func TestDelete_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewDelete(data, false, rel, now)
+	msg, err := NewDelete(data, 0, false, rel, now, true)
 	if err != nil {
 		t.Fatal(err)
 	}

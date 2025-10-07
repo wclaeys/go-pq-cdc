@@ -4,8 +4,13 @@ import (
 	"time"
 
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 )
+
+type Config struct {
+	AutoDecodeTupleData bool `json:"autoDecodeTupleData" yaml:"autoDecodeTupleData"`
+}
 
 const (
 	StreamAbortByte  Type = 'A'
@@ -35,23 +40,23 @@ type Type uint8
 
 var streamedTransaction bool
 
-func New(data []byte, serverTime time.Time, relation map[uint32]*format.Relation) (any, error) {
+func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation, messageConfig Config) (format.WALMessage, error) {
 	switch Type(data[0]) {
 	case InsertByte:
-		return format.NewInsert(data, streamedTransaction, relation, serverTime)
+		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
 	case UpdateByte:
-		return format.NewUpdate(data, streamedTransaction, relation, serverTime)
+		return format.NewUpdate(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
 	case DeleteByte:
-		return format.NewDelete(data, streamedTransaction, relation, serverTime)
+		return format.NewDelete(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
 	case LogicalByte:
-		return format.NewLogicalMessage(data, streamedTransaction, serverTime)
+		return format.NewLogicalMessage(data, walStart, streamedTransaction, serverTime)
 	case TruncateByte:
-		return format.NewTruncate(data, streamedTransaction, relation, serverTime)
+		return format.NewTruncate(data, walStart, streamedTransaction, relation, serverTime)
 	case StreamStopByte, StreamAbortByte, StreamCommitByte:
 		streamedTransaction = false
 		return nil, nil
 	case RelationByte:
-		msg, err := format.NewRelation(data, streamedTransaction)
+		msg, err := format.NewRelation(data, walStart, streamedTransaction)
 		if err == nil {
 			relation[msg.OID] = msg
 		}

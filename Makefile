@@ -33,9 +33,17 @@ tidy/all:
 	go mod tidy
 	cd integration_test && go mod tidy && cd ../
 
+.PHONY: test/unit
+test/unit:
+	go test -v ./...
+
 .PHONY: test/integration
 test/integration:
 	cd integration_test && go test -race -p=1 -v ./...
+
+.PHONY: test
+test: test/unit test/integration
+	@echo 'Tested all'
 
 .PHONY: lint
 lint: init/lint

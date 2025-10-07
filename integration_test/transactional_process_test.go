@@ -2,14 +2,15 @@ package integration
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	cdc "github.com/wclaeys/go-pq-cdc"
 	"github.com/wclaeys/go-pq-cdc/config"
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
-	"testing"
-	"time"
 )
 
 func TestTransactionalProcess(t *testing.T) {
@@ -28,12 +29,12 @@ func TestTransactionalProcess(t *testing.T) {
 	}
 
 	messageCh := make(chan any, 500)
-	handlerFunc := func(ctx *replication.ListenerContext) {
-		switch msg := ctx.Message.(type) {
+	handlerFunc := func(ack replication.Acknowledger, walMessage format.WALMessage) {
+		switch msg := walMessage.(type) {
 		case *format.Insert, *format.Delete, *format.Update:
 			messageCh <- msg
 		}
-		_ = ctx.Ack()
+		_ = ack(walMessage.GetLSN())
 	}
 
 	connector, err := cdc.NewConnector(ctx, cdcCfg, handlerFunc)

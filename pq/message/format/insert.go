@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
@@ -20,11 +21,13 @@ type Insert struct {
 	TableName      string
 	OID            uint32
 	XID            uint32
+	lsn            pq.LSN
 }
 
-func NewInsert(data []byte, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Insert, error) {
+func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Insert, error) {
 	msg := &Insert{
 		MessageTime: serverTime,
+		lsn:         lsn,
 	}
 	if err := msg.decode(data, streamedTransaction); err != nil {
 		return nil, err
@@ -38,15 +41,19 @@ func NewInsert(data []byte, streamedTransaction bool, relation map[uint32]*Relat
 	msg.TableNamespace = rel.Namespace
 	msg.TableName = rel.Name
 
-	msg.Decoded = make(map[string]any)
-
-	var err error
-	msg.Decoded, err = msg.TupleData.DecodeWithColumn(rel.Columns)
-	if err != nil {
-		return nil, err
+	if autoDecodeTupleData {
+		var err error
+		msg.Decoded, err = msg.TupleData.DecodeWithColumn(rel.Columns)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return msg, nil
+}
+
+func (m *Insert) GetLSN() pq.LSN {
+	return m.lsn
 }
 
 func (m *Insert) decode(data []byte, streamedTransaction bool) error {

@@ -28,12 +28,12 @@ func TestTruncate(t *testing.T) {
 	}
 
 	messageCh := make(chan any, 500)
-	handlerFunc := func(ctx *replication.ListenerContext) {
-		switch msg := ctx.Message.(type) {
+	handlerFunc := func(ack replication.Acknowledger, walMessage format.WALMessage) {
+		switch msg := walMessage.(type) {
 		case *format.Insert, *format.Truncate:
 			messageCh <- msg
 		}
-		_ = ctx.Ack()
+		_ = ack(walMessage.GetLSN())
 	}
 
 	connector, err := cdc.NewConnector(ctx, cdcCfg, handlerFunc)

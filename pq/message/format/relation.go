@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 
 	"github.com/go-playground/errors"
+	"github.com/wclaeys/go-pq-cdc/pq"
 	"github.com/wclaeys/go-pq-cdc/pq/message/tuple"
 )
 
@@ -16,15 +17,22 @@ type Relation struct {
 	XID           uint32
 	ColumnNumbers uint16
 	ReplicaID     uint8
+	lsn           pq.LSN
 }
 
-func NewRelation(data []byte, streamedTransaction bool) (*Relation, error) {
-	msg := &Relation{}
+func NewRelation(data []byte, lsn pq.LSN, streamedTransaction bool) (*Relation, error) {
+	msg := &Relation{
+		lsn: lsn,
+	}
 	if err := msg.decode(data, streamedTransaction); err != nil {
 		return nil, err
 	}
 
 	return msg, nil
+}
+
+func (m *Relation) GetLSN() pq.LSN {
+	return m.lsn
 }
 
 func (m *Relation) decode(data []byte, streamedTransaction bool) error {

@@ -4,6 +4,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"time"
+
+	"github.com/wclaeys/go-pq-cdc/pq"
 )
 
 // Truncate represents a pgoutput TRUNCATE message.
@@ -14,6 +16,7 @@ type Truncate struct {
 	XID             uint32
 	Cascade         bool
 	RestartIdentity bool
+	lsn             pq.LSN
 }
 
 type TruncateRelation struct {
@@ -22,17 +25,19 @@ type TruncateRelation struct {
 	OID            uint32
 }
 
+func (m *Truncate) GetLSN() pq.LSN {
+	return m.lsn
+}
+
 // NewTruncate parses the TRUNCATE message body (after the leading 'T' byte).
 // If streamedTransaction is true, the XID is present at the front of the message.
-func NewTruncate(
-	data []byte,
-	streamedTransaction bool,
-	relation map[uint32]*Relation,
-	serverTime time.Time,
-) (*Truncate, error) {
-	skipByte := 1
-	t := &Truncate{MessageTime: serverTime}
+func NewTruncate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Truncate, error) {
+	t := &Truncate{
+		MessageTime: serverTime,
+		lsn:         lsn,
+	}
 
+	skipByte := 1
 	// XID (only when streaming a big tx; protocol v2+)
 	if streamedTransaction {
 		if len(data) < skipByte+4 {

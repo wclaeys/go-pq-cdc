@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/wclaeys/go-pq-cdc/logger"
+	"github.com/wclaeys/go-pq-cdc/pq/message"
 	"github.com/wclaeys/go-pq-cdc/pq/publication"
 	"github.com/wclaeys/go-pq-cdc/pq/slot"
 )
@@ -22,6 +23,7 @@ type Config struct {
 	Slot        slot.Config        `json:"slot" yaml:"slot"`
 	Port        int                `json:"port" yaml:"port"`
 	Metric      MetricConfig       `json:"metric" yaml:"metric"`
+	Message     message.Config     `json:"message" yaml:"message"`
 	DebugMode   bool               `json:"debugMode" yaml:"debugMode"`
 }
 
@@ -46,6 +48,8 @@ func (c *Config) SetDefault() {
 	if c.Port == 0 {
 		c.Port = 5432
 	}
+
+	c.Message.AutoDecodeTupleData = true
 
 	if c.Metric.Port == 0 {
 		c.Metric.Port = 8080
