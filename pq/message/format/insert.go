@@ -15,38 +15,21 @@ const (
 
 type Insert struct {
 	MessageTime    time.Time
-	TupleData      *tuple.Data
-	Decoded        map[string]any
+	TupleData      map[string]any
 	TableNamespace string
 	TableName      string
-	OID            uint32
-	XID            uint32
+	OID            uint32 // Object IDentifier of the relation (table)
+	XID            uint32 // Transaction ID of the transaction that caused this message
 	lsn            pq.LSN
 }
 
-func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Insert, error) {
+func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Insert, error) {
 	msg := &Insert{
 		MessageTime: serverTime,
 		lsn:         lsn,
 	}
-	if err := msg.decode(data, streamedTransaction); err != nil {
+	if err := msg.decode(data, streamedTransaction, relation); err != nil {
 		return nil, err
-	}
-
-	rel, ok := relation[msg.OID]
-	if !ok {
-		return nil, errors.New("relation not found")
-	}
-
-	msg.TableNamespace = rel.Namespace
-	msg.TableName = rel.Name
-
-	if autoDecodeTupleData {
-		var err error
-		msg.Decoded, err = msg.TupleData.DecodeWithColumn(rel.Columns)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return msg, nil
@@ -56,7 +39,7 @@ func (m *Insert) GetLSN() pq.LSN {
 	return m.lsn
 }
 
-func (m *Insert) decode(data []byte, streamedTransaction bool) error {
+func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
 	skipByte := 1
 
 	if streamedTransaction {
@@ -75,9 +58,15 @@ func (m *Insert) decode(data []byte, streamedTransaction bool) error {
 	m.OID = binary.BigEndian.Uint32(data[skipByte:])
 	skipByte += 4
 
-	var err error
+	rel, ok := relation[m.OID]
+	if !ok {
+		return errors.Newf("relation %d not found", m.OID)
+	}
+	m.TableNamespace = rel.Namespace
+	m.TableName = rel.Name
 
-	m.TupleData, err = tuple.NewData(data, InsertTupleDataType, skipByte)
+	var err error
+	m.TupleData, _, err = tuple.NewData(data, InsertTupleDataType, skipByte, rel.Columns, nil)
 	if err != nil {
 		return errors.Wrap(err, "insert message")
 	}

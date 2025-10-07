@@ -44,7 +44,7 @@ func TestDelete_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewDelete(data, 0, false, rel, now, true)
+	msg, err := NewDelete(data, 0, false, rel, now)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,23 +53,7 @@ func TestDelete_New(t *testing.T) {
 		OID:          16390,
 		XID:          0,
 		OldTupleType: 79,
-		OldTupleData: &tuple.Data{
-			ColumnNumber: 2,
-			Columns: tuple.DataColumns{
-				&tuple.DataColumn{
-					DataType: 116,
-					Length:   3,
-					Data:     []byte("645"),
-				},
-				&tuple.DataColumn{
-					DataType: 116,
-					Length:   3,
-					Data:     []byte("foo"),
-				},
-			},
-			SkipByte: 24,
-		},
-		OldDecoded: map[string]any{
+		OldTupleData: map[string]any{
 			"id":   int32(645),
 			"name": "foo",
 		},

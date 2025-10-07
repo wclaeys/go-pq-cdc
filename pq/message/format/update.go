@@ -17,48 +17,23 @@ const (
 
 type Update struct {
 	MessageTime    time.Time
-	NewTupleData   *tuple.Data
-	NewDecoded     map[string]any
-	OldTupleData   *tuple.Data
-	OldDecoded     map[string]any
+	NewTupleData   map[string]any
+	OldTupleData   map[string]any
 	TableNamespace string
 	TableName      string
-	OID            uint32
-	XID            uint32
-	OldTupleType   uint8
+	OID            uint32 // Object IDentifier of the relation (table)
+	XID            uint32 // Transaction ID of the transaction that caused this message
+	OldTupleType   uint8  // 'K' message contains a key of the old tuple; 'O' message contains the old tuple itself (all columns)
 	lsn            pq.LSN
 }
 
-func NewUpdate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Update, error) {
+func NewUpdate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Update, error) {
 	msg := &Update{
 		MessageTime: serverTime,
 		lsn:         lsn,
 	}
-	if err := msg.decode(data, streamedTransaction); err != nil {
+	if err := msg.decode(data, streamedTransaction, relation); err != nil {
 		return nil, err
-	}
-
-	rel, ok := relation[msg.OID]
-	if !ok {
-		return nil, errors.New("relation not found")
-	}
-
-	msg.TableNamespace = rel.Namespace
-	msg.TableName = rel.Name
-
-	if autoDecodeTupleData {
-		var err error
-		if msg.OldTupleData != nil {
-			msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		msg.NewDecoded, err = msg.NewTupleData.DecodeWithColumn(rel.Columns)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return msg, nil
@@ -68,7 +43,7 @@ func (m *Update) GetLSN() pq.LSN {
 	return m.lsn
 }
 
-func (m *Update) decode(data []byte, streamedTransaction bool) error {
+func (m *Update) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
 	skipByte := 1
 
 	if streamedTransaction {
@@ -87,31 +62,28 @@ func (m *Update) decode(data []byte, streamedTransaction bool) error {
 	m.OID = binary.BigEndian.Uint32(data[skipByte:])
 	skipByte += 4
 
+	rel, ok := relation[m.OID]
+	if !ok {
+		return errors.Newf("relation %d not found", m.OID)
+	}
+	m.TableNamespace = rel.Namespace
+	m.TableName = rel.Name
+
 	m.OldTupleType = data[skipByte]
 
 	var err error
 
 	switch m.OldTupleType {
 	case UpdateTupleTypeKey, UpdateTupleTypeOld:
-		m.OldTupleData, err = tuple.NewData(data, m.OldTupleType, skipByte)
+		m.OldTupleData, skipByte, err = tuple.NewData(data, m.OldTupleType, skipByte, rel.Columns, nil)
 		if err != nil {
 			return errors.Wrap(err, "update message old tuple data")
 		}
-		skipByte = m.OldTupleData.SkipByte
 		fallthrough
 	case UpdateTupleTypeNew:
-		m.NewTupleData, err = tuple.NewData(data, UpdateTupleTypeNew, skipByte)
+		m.NewTupleData, _, err = tuple.NewData(data, UpdateTupleTypeNew, skipByte, rel.Columns, m.OldTupleData)
 		if err != nil {
 			return errors.Wrap(err, "update message new tuple data")
-		}
-
-		if m.OldTupleData != nil {
-			for i, col := range m.NewTupleData.Columns {
-				// because toasted columns not sent until the toasted column updated
-				if col.DataType == tuple.DataTypeToast {
-					m.NewTupleData.Columns[i] = m.OldTupleData.Columns[i]
-				}
-			}
 		}
 	default:
 		return errors.New("update message undefined tuple type")

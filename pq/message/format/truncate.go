@@ -13,7 +13,7 @@ import (
 type Truncate struct {
 	MessageTime     time.Time
 	Relations       []TruncateRelation
-	XID             uint32
+	XID             uint32 // Transaction ID of the transaction that caused this message
 	Cascade         bool
 	RestartIdentity bool
 	lsn             pq.LSN

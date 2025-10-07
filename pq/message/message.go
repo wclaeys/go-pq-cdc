@@ -8,10 +8,6 @@ import (
 	"github.com/wclaeys/go-pq-cdc/pq/message/format"
 )
 
-type Config struct {
-	AutoDecodeTupleData bool `json:"autoDecodeTupleData" yaml:"autoDecodeTupleData"`
-}
-
 const (
 	StreamAbortByte  Type = 'A'
 	BeginByte        Type = 'B'
@@ -40,14 +36,14 @@ type Type uint8
 
 var streamedTransaction bool
 
-func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation, messageConfig Config) (format.WALMessage, error) {
+func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation) (format.WALMessage, error) {
 	switch Type(data[0]) {
 	case InsertByte:
-		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
+		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime)
 	case UpdateByte:
-		return format.NewUpdate(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
+		return format.NewUpdate(data, walStart, streamedTransaction, relation, serverTime)
 	case DeleteByte:
-		return format.NewDelete(data, walStart, streamedTransaction, relation, serverTime, messageConfig.AutoDecodeTupleData)
+		return format.NewDelete(data, walStart, streamedTransaction, relation, serverTime)
 	case LogicalByte:
 		return format.NewLogicalMessage(data, walStart, streamedTransaction, serverTime)
 	case TruncateByte:

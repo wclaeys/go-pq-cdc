@@ -18,7 +18,7 @@ type LogicalMessage struct {
 	Prefix        string
 	Content       []byte
 	LSN           uint64
-	XID           uint32
+	XID           uint32 // Transaction ID of the transaction that caused this message
 	Transactional bool
 	lsn           pq.LSN
 }

@@ -44,23 +44,15 @@ func TestInsert_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewInsert(data, 0, false, rel, now, true)
+	msg, err := NewInsert(data, 0, false, rel, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	expected := &Insert{
-		OID: 16390,
-		XID: 0,
-		TupleData: &tuple.Data{
-			ColumnNumber: 2,
-			Columns: tuple.DataColumns{
-				&tuple.DataColumn{DataType: 116, Length: 3, Data: []byte{'6', '0', '5'}},
-				&tuple.DataColumn{DataType: 116, Length: 3, Data: []byte{'f', 'o', 'o'}},
-			},
-			SkipByte: 24,
-		},
-		Decoded:        map[string]any{"id": int32(605), "name": "foo"},
+		OID:            16390,
+		XID:            0,
+		TupleData:      map[string]any{"id": int32(605), "name": "foo"},
 		TableNamespace: "public",
 		TableName:      "t",
 		MessageTime:    now,

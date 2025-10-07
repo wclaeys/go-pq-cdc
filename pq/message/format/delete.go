@@ -11,39 +11,22 @@ import (
 
 type Delete struct {
 	MessageTime    time.Time
-	OldTupleData   *tuple.Data
-	OldDecoded     map[string]any
+	OldTupleData   map[string]any
 	TableNamespace string
 	TableName      string
-	OID            uint32
-	XID            uint32
-	OldTupleType   uint8
+	OID            uint32 // Object IDentifier of the relation (table)
+	XID            uint32 // Transaction ID of the transaction that caused this message
+	OldTupleType   uint8  // 'K' message contains a key of the old tuple; 'O' message contains the old tuple itself (all columns)
 	lsn            pq.LSN
 }
 
-func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, autoDecodeTupleData bool) (*Delete, error) {
+func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Delete, error) {
 	msg := &Delete{
 		MessageTime: serverTime,
 		lsn:         lsn,
 	}
-	if err := msg.decode(data, streamedTransaction); err != nil {
+	if err := msg.decode(data, streamedTransaction, relation); err != nil {
 		return nil, err
-	}
-
-	rel, ok := relation[msg.OID]
-	if !ok {
-		return nil, errors.New("relation not found")
-	}
-
-	msg.TableNamespace = rel.Namespace
-	msg.TableName = rel.Name
-
-	if autoDecodeTupleData {
-		var err error
-		msg.OldDecoded, err = msg.OldTupleData.DecodeWithColumn(rel.Columns)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	return msg, nil
@@ -53,7 +36,7 @@ func (m *Delete) GetLSN() pq.LSN {
 	return m.lsn
 }
 
-func (m *Delete) decode(data []byte, streamedTransaction bool) error {
+func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
 	skipByte := 1
 
 	if streamedTransaction {
@@ -74,9 +57,15 @@ func (m *Delete) decode(data []byte, streamedTransaction bool) error {
 
 	m.OldTupleType = data[skipByte]
 
-	var err error
+	rel, ok := relation[m.OID]
+	if !ok {
+		return errors.Newf("relation %d not found", m.OID)
+	}
+	m.TableNamespace = rel.Namespace
+	m.TableName = rel.Name
 
-	m.OldTupleData, err = tuple.NewData(data, m.OldTupleType, skipByte)
+	var err error
+	m.OldTupleData, _, err = tuple.NewData(data, m.OldTupleType, skipByte, rel.Columns, nil)
 	if err != nil {
 		return errors.Wrap(err, "delete message old tuple data")
 	}

@@ -78,9 +78,9 @@ func TestTransactionalProcess(t *testing.T) {
 		assert.NoError(t, err)
 
 		insertMessage := <-messageCh
-		assert.Equal(t, map[string]any{"id": int32(12), "name": "j*va is best"}, insertMessage.(*format.Insert).Decoded)
+		assert.Equal(t, map[string]any{"id": int32(12), "name": "j*va is best"}, insertMessage.(*format.Insert).TupleData)
 		updateMessage := <-messageCh
-		assert.Equal(t, map[string]any{"id": int32(12), "name": "go is best"}, updateMessage.(*format.Update).NewDecoded)
+		assert.Equal(t, map[string]any{"id": int32(12), "name": "go is best"}, updateMessage.(*format.Update).NewTupleData)
 
 		updateMetric, _ := fetchUpdateOpMetric()
 		insertMetric, _ := fetchInsertOpMetric()
@@ -107,7 +107,7 @@ func TestTransactionalProcess(t *testing.T) {
 		assert.NoError(t, err)
 
 		deleteMessage := <-messageCh
-		assert.Equal(t, int32(12), deleteMessage.(*format.Delete).OldDecoded["id"])
+		assert.Equal(t, int32(12), deleteMessage.(*format.Delete).OldTupleData["id"])
 
 		updateMetric, _ := fetchUpdateOpMetric()
 		insertMetric, _ := fetchInsertOpMetric()

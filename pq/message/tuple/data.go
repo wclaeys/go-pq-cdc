@@ -18,20 +18,6 @@ const (
 
 var typeMap = pgtype.NewMap()
 
-type Data struct {
-	Columns      DataColumns
-	SkipByte     int
-	ColumnNumber uint16
-}
-
-type DataColumns []*DataColumn
-
-type DataColumn struct {
-	Data     []byte
-	Length   uint32
-	DataType uint8
-}
-
 type RelationColumn struct {
 	Name         string
 	DataType     uint32
@@ -39,70 +25,52 @@ type RelationColumn struct {
 	Flags        uint8
 }
 
-func NewData(data []byte, tupleDataType uint8, skipByteLength int) (*Data, error) {
+func NewData(data []byte, tupleDataType uint8, skipByteLength int, columns []RelationColumn, toastedValuesBackup map[string]any) (map[string]any, int, error) {
 	if data[skipByteLength] != tupleDataType {
-		return nil, errors.New("invalid tuple data type: " + string(data[skipByteLength]))
+		return nil, skipByteLength, errors.New("invalid tuple data type: " + string(data[skipByteLength]))
 	}
 	skipByteLength++
 
-	d := &Data{}
-	return d.Decode(data, skipByteLength)
-}
-
-func (d *Data) Decode(data []byte, skipByteLength int) (*Data, error) {
-	d.ColumnNumber = binary.BigEndian.Uint16(data[skipByteLength:])
+	columnNumber := binary.BigEndian.Uint16(data[skipByteLength:])
 	skipByteLength += 2
 
-	// Preallocate slice to avoid growth reallocations
-	d.Columns = make(DataColumns, 0, d.ColumnNumber)
+	decoded := make(map[string]any, columnNumber)
 
-	for range d.ColumnNumber {
-		col := new(DataColumn)
-		col.DataType = data[skipByteLength]
+	for _, col := range columns {
+		dataType := data[skipByteLength]
 		skipByteLength++
 
-		switch col.DataType {
-		case DataTypeNull, DataTypeToast:
+		switch dataType {
+		case DataTypeNull:
+			decoded[col.Name] = nil
+		case DataTypeToast:
 			// no payload
+			if toastedValuesBackup != nil {
+				if val, ok := toastedValuesBackup[col.Name]; ok {
+					decoded[col.Name] = val
+				}
+			}
 		case DataTypeText, DataTypeBinary:
-			col.Length = binary.BigEndian.Uint32(data[skipByteLength:])
+			length := binary.BigEndian.Uint32(data[skipByteLength:])
 			skipByteLength += 4
 
-			// Zero-copy slice
-			col.Data = data[skipByteLength : skipByteLength+int(col.Length)]
-			// previously:
-			// col.Data = make([]byte, int(col.Length))
-			// copy(col.Data, data[skipByteLength:])
-			skipByteLength += int(col.Length)
+			if dataType == DataTypeText {
+				val, err := decodeTextColumnData(data[skipByteLength:skipByteLength+int(length)], col.DataType)
+				if err != nil {
+					return nil, skipByteLength, errors.Wrap(err, "decode column")
+				}
+				decoded[col.Name] = val
+			} else {
+				decoded[col.Name] = data[skipByteLength : skipByteLength+int(length)]
+			}
+			skipByteLength += int(length)
 
 		default:
-			return nil, errors.Newf("unknown tuple data type %q at offset %d", col.DataType, skipByteLength-1)
-		}
-
-		d.Columns = append(d.Columns, col)
-	}
-	d.SkipByte = skipByteLength
-
-	return d, nil
-}
-
-func (d *Data) DecodeWithColumn(columns []RelationColumn) (map[string]any, error) {
-	decoded := make(map[string]any, d.ColumnNumber)
-	for idx, col := range d.Columns {
-		colName := columns[idx].Name
-		switch col.DataType {
-		case DataTypeNull:
-			decoded[colName] = nil
-		case DataTypeText:
-			val, err := decodeTextColumnData(col.Data, columns[idx].DataType)
-			if err != nil {
-				return nil, errors.Wrap(err, "decode column")
-			}
-			decoded[colName] = val
+			return nil, skipByteLength, errors.Newf("unknown tuple data type %q at offset %d", dataType, skipByteLength-1)
 		}
 	}
 
-	return decoded, nil
+	return decoded, skipByteLength, nil
 }
 
 func decodeTextColumnData(data []byte, dataType uint32) (any, error) {

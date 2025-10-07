@@ -95,7 +95,7 @@ func TestCopyProtocol(t *testing.T) {
 		for {
 			m := <-messageCh
 			if v, ok := m.(*format.Insert); ok {
-				if v.Decoded["id"].(int32) == 16 {
+				if v.TupleData["id"].(int32) == 16 {
 					connector.Close()
 					break
 				}
@@ -115,7 +115,7 @@ func TestCopyProtocol(t *testing.T) {
 		for {
 			m := <-messageCh
 			if v, ok := m.(*format.Insert); ok {
-				if v.Decoded["id"].(int32) == 30 {
+				if v.TupleData["id"].(int32) == 30 {
 					break
 				}
 			}

@@ -64,7 +64,7 @@ func TestBasicFunctionality(t *testing.T) {
 
 		for i := range 10 {
 			m := <-messageCh
-			assert.Equal(t, books[i].Map(), m.(*format.Insert).Decoded)
+			assert.Equal(t, books[i].Map(), m.(*format.Insert).TupleData)
 		}
 
 		metric, _ := fetchInsertOpMetric()
@@ -82,7 +82,7 @@ func TestBasicFunctionality(t *testing.T) {
 
 		for i := range 5 {
 			m := <-messageCh
-			assert.Equal(t, books[i].Map(), m.(*format.Update).NewDecoded)
+			assert.Equal(t, books[i].Map(), m.(*format.Update).NewTupleData)
 		}
 
 		metric, _ := fetchUpdateOpMetric()
@@ -97,7 +97,7 @@ func TestBasicFunctionality(t *testing.T) {
 
 		for i := range 5 {
 			m := <-messageCh
-			assert.Equal(t, int32(i+1), m.(*format.Delete).OldDecoded["id"])
+			assert.Equal(t, int32(i+1), m.(*format.Delete).OldTupleData["id"])
 		}
 
 		metric, _ := fetchDeleteOpMetric()
