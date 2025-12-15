@@ -31,6 +31,7 @@ func NewRelation(data []byte, lsn pq.LSN, streamedTransaction bool) (*Relation, 
 	return msg, nil
 }
 
+// Implements the WALMessage interface
 func (m *Relation) GetLSN() pq.LSN {
 	return m.lsn
 }

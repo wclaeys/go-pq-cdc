@@ -39,6 +39,7 @@ func NewUpdate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[u
 	return msg, nil
 }
 
+// Implements the WALMessage interface
 func (m *Update) GetLSN() pq.LSN {
 	return m.lsn
 }

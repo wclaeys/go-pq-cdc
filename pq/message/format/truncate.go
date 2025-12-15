@@ -25,6 +25,7 @@ type TruncateRelation struct {
 	OID            uint32
 }
 
+// Implements the WALMessage interface
 func (m *Truncate) GetLSN() pq.LSN {
 	return m.lsn
 }

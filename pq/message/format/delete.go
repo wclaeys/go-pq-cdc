@@ -17,13 +17,13 @@ type Delete struct {
 	OID            uint32 // Object IDentifier of the relation (table)
 	XID            uint32 // Transaction ID of the transaction that caused this message
 	OldTupleType   uint8  // 'K' message contains a key of the old tuple; 'O' message contains the old tuple itself (all columns)
-	lsn            pq.LSN
+	LSN            pq.LSN
 }
 
 func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Delete, error) {
 	msg := &Delete{
 		MessageTime: serverTime,
-		lsn:         lsn,
+		LSN:         lsn,
 	}
 	if err := msg.decode(data, streamedTransaction, relation); err != nil {
 		return nil, err
@@ -32,8 +32,9 @@ func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[u
 	return msg, nil
 }
 
+// Implements the WALMessage interface
 func (m *Delete) GetLSN() pq.LSN {
-	return m.lsn
+	return m.LSN
 }
 
 func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {

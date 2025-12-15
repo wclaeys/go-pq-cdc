@@ -12,6 +12,11 @@ import (
 	"github.com/wclaeys/go-pq-cdc/pq/replication"
 )
 
+// go test -race -p=1 -v -run=TestBasicFunctionalitySanityTest
+func TestBasicFunctionalitySanityTest(t *testing.T) {
+	fmt.Println("sanity test")
+}
+
 func TestBasicFunctionality(t *testing.T) {
 	ctx := context.Background()
 

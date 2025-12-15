@@ -3,6 +3,7 @@ package publication
 import (
 	"context"
 	goerrors "errors"
+	"strings"
 
 	"github.com/go-playground/errors"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -81,6 +82,8 @@ func (c *Publication) Info(ctx context.Context) (*Config, error) {
 
 func decodePublicationInfoResult(result *pgconn.Result) (*Config, error) {
 	var publicationConfig Config
+	var tables []string
+
 	for i, fd := range result.FieldDescriptions {
 		v, err := decodeTextColumnData(result.Rows[0][i], fd.DataTypeOID)
 		if err != nil {
@@ -110,11 +113,19 @@ func decodePublicationInfoResult(result *pgconn.Result) (*Config, error) {
 			if v.(bool) {
 				publicationConfig.Operations = append(publicationConfig.Operations, "TRUNCATE")
 			}
-		case "included_tables":
+		case "pubtables":
 			for _, val := range v.([]any) {
-				publicationConfig.Tables = append(publicationConfig.Tables, Table{Name: val.(string)})
+				tables = append(tables, val.(string))
 			}
 		}
+	}
+
+	for _, tableName := range tables {
+		st := strings.Split(tableName, ".")
+		publicationConfig.Tables = append(publicationConfig.Tables, Table{
+			Name:   st[1],
+			Schema: st[0],
+		})
 	}
 
 	return &publicationConfig, nil

@@ -17,18 +17,16 @@ type LogicalMessage struct {
 	MessageTime   time.Time
 	Prefix        string
 	Content       []byte
-	LSN           uint64
 	XID           uint32 // Transaction ID of the transaction that caused this message
 	Transactional bool
-	lsn           pq.LSN
+	LSN           pq.LSN
 }
 
 // NewLogicalMessage parses an 'M' frame.
 // Pass streamedTransaction=true if your stream is currently inside a streamed tx.
-func NewLogicalMessage(data []byte, lsn pq.LSN, streamedTransaction bool, serverTime time.Time) (*LogicalMessage, error) {
+func NewLogicalMessage(data []byte, _ pq.LSN, streamedTransaction bool, serverTime time.Time) (*LogicalMessage, error) {
 	msg := &LogicalMessage{
 		MessageTime: serverTime,
-		lsn:         lsn,
 	}
 	if len(data) < 1 || data[0] != 'M' {
 		return nil, errors.New("logical message: invalid tag")
@@ -48,7 +46,7 @@ func NewLogicalMessage(data []byte, lsn pq.LSN, streamedTransaction bool, server
 	}
 	msg.Transactional = data[off] == 1
 	off++
-	msg.LSN = binary.BigEndian.Uint64(data[off : off+8])
+	msg.LSN = pq.LSN(binary.BigEndian.Uint64(data[off : off+8]))
 	off += 8
 
 	// NUL-terminated prefix
@@ -77,6 +75,7 @@ func NewLogicalMessage(data []byte, lsn pq.LSN, streamedTransaction bool, server
 	return msg, nil
 }
 
+// Implements the WALMessage interface
 func (m *LogicalMessage) GetLSN() pq.LSN {
-	return m.lsn
+	return m.LSN
 }

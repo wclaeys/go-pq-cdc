@@ -5,19 +5,39 @@ The architecture leverages PostgreSQL's built-in logical replication capabilitie
 stream these changes to downstream systems, such as Kafka, Elasticsearch etc. The entire system is written in Golang,
 ensuring low resource consumption and high performance.
 
-[Debezium vs go-pq-cdc benchmark](https://github.com/Trendyol/go-pq-cdc/tree/main/benchmark)
+[Debezium vs go-pq-cdc benchmark](./benchmark)
+
+## Snapshot Feature
+
+**Capture existing data before starting CDC!** The new snapshot feature enables initial data synchronization, ensuring downstream systems receive both historical and real-time data.
+
+✨ **Key Highlights:**
+- **Zero Data Loss**: Consistent point-in-time snapshot using PostgreSQL's `pg_export_snapshot()`
+- **Chunk-Based Processing**: Memory-efficient processing of large tables
+- **Multi-Instance Support**: Parallel processing across multiple instances
+- **Crash Recovery**: Automatic resume from failures
+- **No Duplicates**: Seamless transition from snapshot to CDC
+- **Snapshot Only Mode**: One-time data export without CDC (no replication slot required)
+
+📚 **[Read Full Documentation](docs/SNAPSHOT_FEATURE.md)** for detailed architecture, configuration, and best practices.
 
 ### Contents
 
-* [Why?](#why)
-* [Usage](#usage)
-* [Examples](#examples)
-* [Availability](#availability)
-* [Configuration](#configuration)
-* [API](#api)
-* [Exposed Metrics](#exposed-metrics)
-* [Compatibility](#compatibility)
-* [Breaking Changes](#breaking-changes)
+- [go-pq-cdc   ](#go-pq-cdc---)
+	- [Snapshot Feature](#-new-snapshot-feature)
+    - [Contents](#contents)
+    - [Why?](#why)
+    - [Usage](#usage)
+    - [Examples](#examples)
+    - [Availability](#availability)
+    - [TOAST Handling](#toast-handling)
+    - [Heartbeat-based WAL Protection](#heartbeat-based-wal-protection)
+    - [Configuration](#configuration)
+    - [API](#api)
+    - [Exposed Metrics](#exposed-metrics)
+    - [Grafana Dashboard](#grafana-dashboard)
+    - [Compatibility](#compatibility)
+    - [Breaking Changes](#breaking-changes)
 
 ### Why?
 
@@ -112,8 +132,11 @@ func Handler(ctx *replication.ListenerContext) {
 
 ### Examples
 
-* [Simple](https://github.com/Trendyol/go-pq-cdc/tree/main/example/simple)
-* [Simple File Config](https://github.com/Trendyol/go-pq-cdc/tree/main/example/simple-file-config)
+* [Simple](./example/simple)
+* [Simple File Config](./example/simple-file-config)
+* [Simple With Heartbeat](./example/simple-with-heartbeat)
+* [Snapshot Mode (Initial Data Capture)](./example/snapshotmode)
+* [Snapshot Only Mode (One-Time Export)](./example/snapshotonlymode)
 * [PostgreSQL to Elasticsearch](https://github.com/Trendyol/go-pq-cdc-elasticsearch/tree/main/example/simple)
 * [PostgreSQL to Kafka](https://github.com/Trendyol/go-pq-cdc-kafka/tree/main/example/simple)
 * [PostgreSQL to PostgreSQL](https://github.com/Trendyol/go-pq-cdc/tree/main/example/postgresql)
@@ -131,6 +154,58 @@ availability:
   and when detected as inactive, they initiate data capturing.
 
 This setup ensures continuous data synchronization and minimal downtime in capturing database changes.
+
+### TOAST Handling
+
+PostgreSQL does not send TOASTed column values during an update unless the TOASTed column itself is modified.
+For example, if only a small field changes, large columns such as TEXT, JSONB, or BYTEA are sent as TOAST placeholders instead of real values.
+
+To guarantee that UPDATE messages include full, correct data, go-pq-cdc automatically merges old and new tuples, restoring any missing TOASTed fields:
+
+```go
+if m.OldTupleData != nil {
+    for i, col := range m.NewTupleData.Columns {
+        // Toasted columns are not sent unless the column itself changed
+        if col.DataType == tuple.DataTypeToast {
+            m.NewTupleData.Columns[i] = m.OldTupleData.Columns[i]
+        }
+    }
+}
+```
+
+### Heartbeat-based WAL Protection
+
+Logical replication slots in PostgreSQL retain WAL segments until all consumers have confirmed they no longer need them.
+In low-traffic databases, this can cause **WAL bloat** when other databases on the same Postgres instance generate a lot of
+traffic while the CDC database itself remains mostly idle. In this situation the replication slot's `restart_lsn` and
+`confirmed_flush_lsn` may lag far behind `pg_current_wal_lsn()`, preventing WAL segments from being recycled.
+
+go-pq-cdc provides a **heartbeat mechanism** similar to Debezium's `heartbeat.action.query` for this scenario.
+When enabled, the connector periodically executes a user-defined SQL statement on the **same source database** used
+for CDC. This statement should generate WAL (typically a small `INSERT` into a dedicated heartbeat table), and ideally
+target a table that is part of the publication so that changes flow through the normal CDC pipeline.
+
+Each heartbeat:
+
+- Produces a real transaction and COMMIT in the CDC database.
+- Is decoded and acknowledged by go-pq-cdc via the replication stream.
+- Advances the slot's `confirmed_flush_lsn` and, over time, `restart_lsn`, allowing PostgreSQL to safely recycle old WAL.
+
+This makes WAL retention **predictable** even when application traffic on the CDC database is very low, while other
+databases on the same instance are generating heavy write load.
+
+You can run [Simple With Heartbeat](./example/simple-with-heartbeat) example.
+
+#### Replica Identity Requirement
+
+For this TOAST reconstruction to work, PostgreSQL must send the old tuple.
+This requires setting the table's replica identity to FULL:
+
+`ALTER TABLE your_table REPLICA IDENTITY FULL;`
+
+- With `REPLICA IDENTITY DEFAULT`, PostgreSQL only sends primary keys for updates/deletes.
+- In that mode, old tuple values (including TOASTed fields) are not provided.
+- Therefore, `FULL` is required to correctly handle TOASTed columns in CDC.
 
 ### Configuration
 
@@ -154,6 +229,17 @@ This setup ensures continuous data synchronization and minimal downtime in captu
 | `slot.createIfNotExists`                |   bool   |    no    |    -    | Create replication slot if not exists. Otherwise, return `replication slot is not exists` error.      |                                                                                                                                                    |
 | `slot.name`                             |  string  |   yes    |    -    | Set the logical replication slot name                                                                 | Should be unique and descriptive.                                                                                                                  |
 | `slot.slotActivityCheckerInterval`      |   int    |    no    |  1000   | Set the slot activity check interval time in milliseconds                                             | Specify as an integer value in milliseconds (e.g., `1000` for 1 second).                                                                           |
+| `snapshot.enabled`                      |   bool   |    no    |  false  | Enable initial snapshot feature                                                                       | When enabled, captures existing data before starting CDC.                                                                                          |
+| `snapshot.mode`                         |  string  |    no    |  never  | Snapshot mode: `initial`, `never`, or `snapshot_only`                                                 | **initial:** Take snapshot only if no previous snapshot exists, then start CDC. <br> **never:** Skip snapshot, start CDC immediately. <br> **snapshot_only:** Take snapshot and exit (no CDC, no replication slot required). |
+| `snapshot.chunkSize`                    |  int64   |    no    |  8000   | Number of rows per chunk during snapshot                                                              | Adjust based on table size. Larger chunks = fewer chunks but more memory per chunk.                                                               |
+| `snapshot.claimTimeout`                 | duration |    no    |  30s    | Timeout to reclaim stale chunks                                                                       | If a worker doesn't send heartbeat for this duration, chunk is reclaimed by another worker.                                                        |
+| `snapshot.heartbeatInterval`            | duration |    no    |  5s     | Interval for worker heartbeat updates                                                                 | Workers send heartbeat every N seconds to indicate they're processing a chunk.                                                                     |
+| `snapshot.instanceId`                   |  string  |    no    |  auto   | Custom instance identifier (optional)                                                                 | Auto-generated as `hostname-pid` if not specified. Useful for tracking workers.                                                                    |
+| `snapshot.tables`                       | []Table  |    no*   |    -    | Tables to snapshot (required for `snapshot_only` mode, optional for `initial` mode)                  | **snapshot_only:** Must be specified here (independent from publication). <br> **initial:** If specified, must be a subset of publication tables. If not specified, all publication tables are snapshotted. |
+| `heartbeat.enabled`                     |   bool   |    no    |  false  | Enable WAL heartbeat. When true, the connector periodically executes `heartbeat.query` on the source database to produce small committed changes and advance the logical replication slot. |                                                                                                                                                    |
+| `heartbeat.interval`                    | duration |    no    |   5s    | Interval between heartbeat executions when `heartbeat.enabled` is true. Must be greater than 0.      | Any valid Go duration string (e.g. `1s`, `5s`, `500ms`, `1m`).                                              |
+| `heartbeat.query`                       |  string  |    no    |    -    | SQL statement executed on the source database for each heartbeat. Should generate WAL (e.g. an `INSERT` into a heartbeat table that is part of the publication). | Typically an `INSERT` into a small heartbeat table in the same database, for example: `INSERT INTO public.heartbeat_events(txt) VALUES ('hb')`.   |
+| `extensionSupport.enableTimescaleDB`    |   bool   |    no    |  false  | Enable support for TimescaleDB hypertables. Ensures proper handling of compressed chunks during replication. |                                                                                                                                                    |
 
 ### API
 
@@ -182,6 +268,12 @@ the `/metrics` endpoint.
 | go_pq_cdc_replication_slot_slot_is_active           | Indicates whether the PostgreSQL replication slot is currently active (1 for active, 0 for inactive). | slot_name, host| Gauge      |
 | go_pq_cdc_replication_slot_slot_lag                 | The replication lag measured by the difference between the current LSN and the confirmed flush LSN.   | slot_name, host| Gauge      |
 | go_pq_cdc_replication_slot_slot_retained_wal_size   | The size of Write-Ahead Logging (WAL) files retained for the replication slot in bytes.               | slot_name, host| Gauge      |
+| go_pq_cdc_snapshot_in_progress                      | Indicates whether snapshot is currently in progress (1 for active, 0 for inactive).                   | slot_name, host| Gauge      |
+| go_pq_cdc_snapshot_total_tables                     | Total number of tables to snapshot.                                                                    | slot_name, host| Gauge      |
+| go_pq_cdc_snapshot_total_chunks                     | Total number of chunks to process across all tables.                                                   | slot_name, host| Gauge      |
+| go_pq_cdc_snapshot_completed_chunks                 | Number of chunks completed in snapshot.                                                                | slot_name, host| Gauge      |
+| go_pq_cdc_snapshot_total_rows                       | Total number of rows read during snapshot.                                                             | slot_name, host| Counter    |
+| go_pq_cdc_snapshot_duration_seconds                 | Duration of the last snapshot operation in seconds.                                                    | slot_name, host| Gauge      |
 | runtime metrics                                     | [Prometheus Collector](https://golang.bg/src/runtime/metrics/description.go)                          | N/A            | N/A        |
 
 ### Grafana Dashboard

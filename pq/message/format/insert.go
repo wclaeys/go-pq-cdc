@@ -20,13 +20,13 @@ type Insert struct {
 	TableName      string
 	OID            uint32 // Object IDentifier of the relation (table)
 	XID            uint32 // Transaction ID of the transaction that caused this message
-	lsn            pq.LSN
+	LSN            pq.LSN
 }
 
 func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Insert, error) {
 	msg := &Insert{
 		MessageTime: serverTime,
-		lsn:         lsn,
+		LSN:         lsn,
 	}
 	if err := msg.decode(data, streamedTransaction, relation); err != nil {
 		return nil, err
@@ -35,8 +35,9 @@ func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[u
 	return msg, nil
 }
 
+// Implements the WALMessage interface
 func (m *Insert) GetLSN() pq.LSN {
-	return m.lsn
+	return m.LSN
 }
 
 func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
