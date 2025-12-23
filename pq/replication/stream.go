@@ -48,18 +48,18 @@ type Streamer interface {
 type stream struct {
 	conn                pq.Connection
 	metric              metric.Metric
-	system              *pq.IdentifySystemResult
+	sinkEnd             chan struct{}
 	relation            map[uint32]*format.Relation
 	messageCH           chan format.WALMessage
 	listenerFunc        ListenerFunc
-	sinkEnd             chan struct{}
+	system              *pq.IdentifySystemResult
 	mu                  *sync.RWMutex
+	acknowledger        func(pos pq.LSN) error
 	config              config.Config
 	lastXLogPos         pq.LSN
 	snapshotLSN         pq.LSN
-	openFromSnapshotLSN bool
 	closed              atomic.Bool
-	acknowledger        func(pos pq.LSN) error
+	openFromSnapshotLSN bool
 }
 
 func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metric, listenerFunc ListenerFunc) Streamer {
@@ -89,7 +89,6 @@ func (s *stream) createAcknowledger(ctx context.Context) Acknowledger {
 			logger.Debug("send stand by status update", "xLogPos", pos.String())
 		}
 		return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.system.LoadXLogPos()))
-
 	}
 }
 

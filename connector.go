@@ -80,7 +80,7 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 	return NewConnectorWithMetricRegistry(ctx, cfg, listenerFunc, true, nil)
 }
 
-func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHttpServer bool, mR metric.Registry) (Connector, error) {
+func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, mR metric.Registry) (Connector, error) {
 	cfg.SetDefault()
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "config validation")
@@ -91,7 +91,7 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 
 	// Snapshot-only mode: minimal setup without CDC components
 	if cfg.IsSnapshotOnlyMode() {
-		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc, useEmbeddedHttpServer, mR)
+		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc, useEmbeddedHTTPServer, mR)
 	}
 
 	// Normal CDC mode: full setup with publication, slot, stream
@@ -142,7 +142,7 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 	}
 
 	var httpServer http.Server
-	if useEmbeddedHttpServer {
+	if useEmbeddedHTTPServer {
 		httpServer = http.NewServer(cfg, prometheusRegistry)
 	} else {
 		httpServer = nil
@@ -164,7 +164,7 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 
 // newSnapshotOnlyConnector creates a minimal connector for snapshot-only mode
 // without CDC components (publication, slot, replication stream)
-func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHttpServer bool, mR metric.Registry) (Connector, error) {
+func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, mR metric.Registry) (Connector, error) {
 	// Use a dummy metric name since we don't have a slot
 	var prometheusRegistry metric.Registry
 	if mR == nil {
@@ -189,7 +189,7 @@ func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFu
 	logger.Info("snapshot-only mode enabled", "tables", len(snapshotTables))
 
 	var httpServer http.Server
-	if useEmbeddedHttpServer {
+	if useEmbeddedHTTPServer {
 		httpServer = http.NewServer(cfg, prometheusRegistry)
 	} else {
 		httpServer = nil
