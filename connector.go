@@ -77,10 +77,10 @@ func NewConnectorWithConfigFile(ctx context.Context, configFilePath string, list
 }
 
 func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc) (Connector, error) {
-	return NewConnectorWithMetricRegistry(ctx, cfg, listenerFunc, true, nil)
+	return NewConnectorWithMetricAndRegistry(ctx, cfg, listenerFunc, true, nil, nil)
 }
 
-func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, mR metric.Registry) (Connector, error) {
+func NewConnectorWithMetricAndRegistry(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, m metric.Metric, mR metric.Registry) (Connector, error) {
 	cfg.SetDefault()
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "config validation")
@@ -91,7 +91,7 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 
 	// Snapshot-only mode: minimal setup without CDC components
 	if cfg.IsSnapshotOnlyMode() {
-		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc, useEmbeddedHTTPServer, mR)
+		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc, useEmbeddedHTTPServer, m, mR)
 	}
 
 	// Normal CDC mode: full setup with publication, slot, stream
@@ -111,10 +111,16 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 	// Close the setup connection - we don't need it anymore
 	conn.Close(ctx)
 
+	var metricInstance metric.Metric
+	if m == nil {
+		metricInstance = metric.NewMetric(cfg.Slot.Name)
+	} else {
+		metricInstance = m
+	}
+
 	var prometheusRegistry metric.Registry
 	if mR == nil {
-		m := metric.NewMetric(cfg.Slot.Name)
-		prometheusRegistry = metric.NewRegistry(m)
+		prometheusRegistry = metric.NewRegistry(metricInstance)
 	} else {
 		prometheusRegistry = mR
 	}
@@ -125,14 +131,14 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 		return nil, errors.Wrap(err, "get snapshot tables")
 	}
 
-	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, prometheusRegistry.Metric())
+	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, metricInstance)
 	if err != nil {
 		return nil, err
 	}
 
-	stream := replication.NewStream(ctx, cfg.ReplicationDSN(), cfg, prometheusRegistry.Metric(), listenerFunc)
+	stream := replication.NewStream(ctx, cfg.ReplicationDSN(), cfg, metricInstance, listenerFunc)
 
-	sl := slot.NewSlot(cfg.ReplicationDSN(), cfg.DSN(), cfg.Slot, prometheusRegistry.Metric(), stream.(slot.XLogUpdater))
+	sl := slot.NewSlot(cfg.ReplicationDSN(), cfg.DSN(), cfg.Slot, metricInstance, stream.(slot.XLogUpdater))
 	var heartbeatConn pq.Connection
 	if cfg.Heartbeat.Enabled {
 		heartbeatConn, err = pq.NewConnection(ctx, cfg.DSN())
@@ -164,12 +170,18 @@ func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, list
 
 // newSnapshotOnlyConnector creates a minimal connector for snapshot-only mode
 // without CDC components (publication, slot, replication stream)
-func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, mR metric.Registry) (Connector, error) {
+func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHTTPServer bool, m metric.Metric, mR metric.Registry) (Connector, error) {
 	// Use a dummy metric name since we don't have a slot
+	var metricInstance metric.Metric
+	if m == nil {
+		metricInstance = metric.NewMetric("snapshot_only")
+	} else {
+		metricInstance = m
+	}
+
 	var prometheusRegistry metric.Registry
 	if mR == nil {
-		m := metric.NewMetric("snapshot_only")
-		prometheusRegistry = metric.NewRegistry(m)
+		prometheusRegistry = metric.NewRegistry(metricInstance)
 	} else {
 		prometheusRegistry = mR
 	}
@@ -181,7 +193,7 @@ func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFu
 	}
 
 	// Initialize snapshotter with tables from snapshot config
-	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, prometheusRegistry.Metric())
+	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, metricInstance)
 	if err != nil {
 		return nil, err
 	}

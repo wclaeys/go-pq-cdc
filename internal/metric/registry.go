@@ -10,11 +10,9 @@ import (
 type Registry interface {
 	AddMetricCollectors(metricCollectors ...prometheus.Collector)
 	Prometheus() *prometheus.Registry
-	Metric() Metric
 }
 
 type prometheusRegistry struct {
-	metric   Metric
 	registry *prometheus.Registry
 }
 
@@ -27,13 +25,8 @@ func NewRegistry(m Metric) Registry {
 	r.MustRegister(m.PrometheusCollectors()...)
 
 	return &prometheusRegistry{
-		metric:   m,
 		registry: r,
 	}
-}
-
-func (r *prometheusRegistry) Metric() Metric {
-	return r.metric
 }
 
 func (r *prometheusRegistry) AddMetricCollectors(metricCollectors ...prometheus.Collector) {
