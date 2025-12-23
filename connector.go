@@ -77,6 +77,10 @@ func NewConnectorWithConfigFile(ctx context.Context, configFilePath string, list
 }
 
 func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc) (Connector, error) {
+	return NewConnectorWithMetricRegistry(ctx, cfg, listenerFunc, true, nil)
+}
+
+func NewConnectorWithMetricRegistry(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHttpServer bool, mR metric.Registry) (Connector, error) {
 	cfg.SetDefault()
 	if err := cfg.Validate(); err != nil {
 		return nil, errors.Wrap(err, "config validation")
@@ -87,7 +91,7 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 
 	// Snapshot-only mode: minimal setup without CDC components
 	if cfg.IsSnapshotOnlyMode() {
-		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc)
+		return newSnapshotOnlyConnector(ctx, cfg, listenerFunc, useEmbeddedHttpServer, mR)
 	}
 
 	// Normal CDC mode: full setup with publication, slot, stream
@@ -107,7 +111,13 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 	// Close the setup connection - we don't need it anymore
 	conn.Close(ctx)
 
-	m := metric.NewMetric(cfg.Slot.Name)
+	var prometheusRegistry metric.Registry
+	if mR == nil {
+		m := metric.NewMetric(cfg.Slot.Name)
+		prometheusRegistry = metric.NewRegistry(m)
+	} else {
+		prometheusRegistry = mR
+	}
 
 	// Get tables to snapshot (either from snapshot.tables or publication.tables)
 	snapshotTables, err := cfg.GetSnapshotTables(publicationInfo)
@@ -115,14 +125,14 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 		return nil, errors.Wrap(err, "get snapshot tables")
 	}
 
-	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, m)
+	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, prometheusRegistry.Metric())
 	if err != nil {
 		return nil, err
 	}
 
-	stream := replication.NewStream(ctx, cfg.ReplicationDSN(), cfg, m, listenerFunc)
+	stream := replication.NewStream(ctx, cfg.ReplicationDSN(), cfg, prometheusRegistry.Metric(), listenerFunc)
 
-	sl := slot.NewSlot(cfg.ReplicationDSN(), cfg.DSN(), cfg.Slot, m, stream.(slot.XLogUpdater))
+	sl := slot.NewSlot(cfg.ReplicationDSN(), cfg.DSN(), cfg.Slot, prometheusRegistry.Metric(), stream.(slot.XLogUpdater))
 	var heartbeatConn pq.Connection
 	if cfg.Heartbeat.Enabled {
 		heartbeatConn, err = pq.NewConnection(ctx, cfg.DSN())
@@ -131,13 +141,18 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 		}
 	}
 
-	prometheusRegistry := metric.NewRegistry(m)
+	var httpServer http.Server
+	if useEmbeddedHttpServer {
+		httpServer = http.NewServer(cfg, prometheusRegistry)
+	} else {
+		httpServer = nil
+	}
 
 	return &connector{
 		cfg:                &cfg,
 		stream:             stream,
 		prometheusRegistry: prometheusRegistry,
-		server:             http.NewServer(cfg, prometheusRegistry),
+		server:             httpServer,
 		slot:               sl,
 		heartbeatConn:      heartbeatConn,
 		snapshotter:        snapshotter,
@@ -149,9 +164,15 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 
 // newSnapshotOnlyConnector creates a minimal connector for snapshot-only mode
 // without CDC components (publication, slot, replication stream)
-func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc) (Connector, error) {
+func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFunc replication.ListenerFunc, useEmbeddedHttpServer bool, mR metric.Registry) (Connector, error) {
 	// Use a dummy metric name since we don't have a slot
-	m := metric.NewMetric("snapshot_only")
+	var prometheusRegistry metric.Registry
+	if mR == nil {
+		m := metric.NewMetric("snapshot_only")
+		prometheusRegistry = metric.NewRegistry(m)
+	} else {
+		prometheusRegistry = mR
+	}
 
 	// Get tables to snapshot from snapshot.tables
 	snapshotTables, err := cfg.GetSnapshotTables(nil) // nil publicationInfo for snapshot_only mode
@@ -160,19 +181,23 @@ func newSnapshotOnlyConnector(ctx context.Context, cfg config.Config, listenerFu
 	}
 
 	// Initialize snapshotter with tables from snapshot config
-	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, m)
+	snapshotter, err := initializeSnapshot(ctx, cfg, snapshotTables, prometheusRegistry.Metric())
 	if err != nil {
 		return nil, err
 	}
 
-	prometheusRegistry := metric.NewRegistry(m)
-
 	logger.Info("snapshot-only mode enabled", "tables", len(snapshotTables))
 
+	var httpServer http.Server
+	if useEmbeddedHttpServer {
+		httpServer = http.NewServer(cfg, prometheusRegistry)
+	} else {
+		httpServer = nil
+	}
 	return &connector{
 		cfg:                &cfg,
 		prometheusRegistry: prometheusRegistry,
-		server:             http.NewServer(cfg, prometheusRegistry),
+		server:             httpServer,
 		snapshotter:        snapshotter,
 		listenerFunc:       listenerFunc,
 		cancelCh:           make(chan os.Signal, 1),
@@ -202,9 +227,11 @@ func initializeSnapshot(ctx context.Context, cfg config.Config, tables publicati
 }
 
 func (c *connector) Start(ctx context.Context) {
-	c.once.Do(func() {
-		go c.server.Listen()
-	})
+	if c.server != nil {
+		c.once.Do(func() {
+			go c.server.Listen()
+		})
+	}
 
 	// Snapshot-only mode: execute snapshot and exit
 	if c.cfg.IsSnapshotOnlyMode() {
@@ -554,8 +581,10 @@ func (c *connector) Close() {
 		c.stream.Close(ctx)
 	}
 
-	// Shutdown HTTP server
-	c.server.Shutdown()
+	if c.server != nil {
+		// Shutdown HTTP server
+		c.server.Shutdown()
+	}
 
 	logger.Info("[connector] connector closed successfully")
 }
