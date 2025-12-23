@@ -46,8 +46,6 @@ type connector struct {
 	cfg                *config.Config
 	snapshotter        *snapshot.Snapshotter
 	listenerFunc       replication.ListenerFunc
-	system             pq.IdentifySystemResult
-	snapshotLSN        pq.LSN
 	once               sync.Once
 	heartbeatMu        sync.Mutex
 }
@@ -122,29 +120,9 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 		return nil, err
 	}
 
-	// Create dedicated replication connection for CDC streaming
-	// This is the ONLY connection that should use ReplicationDSN()
-	// IMPORTANT: IDENTIFY_SYSTEM command requires replication connection
-	replConn, err := pq.NewConnection(ctx, cfg.ReplicationDSN())
-	if err != nil {
-		return nil, errors.Wrap(err, "create replication connection")
-	}
+	stream := replication.NewStream(ctx, cfg.ReplicationDSN(), cfg, m, listenerFunc)
 
-	system, err := pq.IdentifySystem(ctx, replConn)
-	if err != nil {
-		return nil, err
-	}
-	logger.Info("system identification", "systemID", system.SystemID, "timeline", system.Timeline, "xLogPos", system.LoadXLogPos(), "database:", system.Database)
-
-	stream := replication.NewStream(ctx, replConn, cfg, m, &system, listenerFunc)
-
-	// Slot needs replication connection for CREATE_REPLICATION_SLOT command
-	sl, err := slot.NewSlot(ctx, cfg.ReplicationDSN(), cfg.Slot, m, stream.(slot.XLogUpdater))
-	if err != nil {
-		return nil, err
-	}
-
-	// Optional heartbeat connection (normal DSN, not replication)
+	sl := slot.NewSlot(cfg.ReplicationDSN(), cfg.DSN(), cfg.Slot, m, stream.(slot.XLogUpdater))
 	var heartbeatConn pq.Connection
 	if cfg.Heartbeat.Enabled {
 		heartbeatConn, err = pq.NewConnection(ctx, cfg.DSN())
@@ -157,7 +135,6 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 
 	return &connector{
 		cfg:                &cfg,
-		system:             system,
 		stream:             stream,
 		prometheusRegistry: prometheusRegistry,
 		server:             http.NewServer(cfg, prometheusRegistry),
@@ -165,9 +142,8 @@ func NewConnector(ctx context.Context, cfg config.Config, listenerFunc replicati
 		heartbeatConn:      heartbeatConn,
 		snapshotter:        snapshotter,
 		listenerFunc:       listenerFunc,
-
-		cancelCh: make(chan os.Signal, 1),
-		readyCh:  make(chan struct{}, 1),
+		cancelCh:           make(chan os.Signal, 1),
+		readyCh:            make(chan struct{}, 1),
 	}, nil
 }
 
@@ -264,8 +240,18 @@ func (c *connector) Start(ctx context.Context) {
 		logger.Info("slot info", "info", slotInfo)
 	}
 
+	if err := c.slot.Connect(ctx); err != nil {
+		logger.Error("slot connection failed", "error", err)
+		return
+	}
+
 	// Normal CDC flow (unchanged for backward compatibility)
 	c.CaptureSlot(ctx)
+
+	if err := c.stream.Connect(ctx); err != nil {
+		logger.Error("stream connection failed", "error", err)
+		return
+	}
 
 	err := c.stream.Open(ctx)
 	if err != nil {
@@ -330,14 +316,11 @@ func (c *connector) prepareSnapshotAndSlot(ctx context.Context) error {
 		logger.Debug("replication slot created, WAL preserved", "slotName", slotInfo.Name, "restartLSN", slotInfo.RestartLSN.String())
 
 		// Phase 2: Prepare snapshot (capture LSN, create metadata, export snapshot)
-		snapshotLSN, err := c.snapshotter.Prepare(ctx, c.cfg.Slot.Name)
+		err = c.snapshotter.Prepare(ctx, c.cfg.Slot.Name)
 		if err != nil {
 			return errors.Wrap(err, "prepare snapshot")
 		}
-
-		c.snapshotLSN = snapshotLSN
-		c.stream.SetSnapshotLSN(snapshotLSN)
-		logger.Debug("snapshot prepared, LSN captured", "snapshotLSN", snapshotLSN.String())
+		c.stream.OpenFromSnapshotLSN()
 
 		// Phase 3: Execute snapshot (collect data from all chunks)
 		// This may fail if coordinator restarts during execution - retry with backoff
@@ -349,7 +332,7 @@ func (c *connector) prepareSnapshotAndSlot(ctx context.Context) error {
 			return errors.Wrap(err, "execute snapshot")
 		}
 
-		logger.Info("snapshot completed successfully", "snapshotLSN", snapshotLSN.String())
+		logger.Info("snapshot completed successfully")
 		return nil
 	})
 }
@@ -363,13 +346,10 @@ func (c *connector) executeSnapshotOnly(ctx context.Context) error {
 	logger.Info("starting snapshot-only execution", "slotName", slotName)
 
 	// Prepare snapshot (capture LSN, create metadata, export snapshot)
-	snapshotLSN, err := c.snapshotter.Prepare(ctx, slotName)
+	err := c.snapshotter.Prepare(ctx, slotName)
 	if err != nil {
 		return errors.Wrap(err, "prepare snapshot")
 	}
-
-	c.snapshotLSN = snapshotLSN
-	logger.Info("snapshot prepared", "snapshotLSN", snapshotLSN.String())
 
 	// Execute snapshot (collect data from all chunks)
 	// Note: We call Execute directly with the slotName we prepared with,
@@ -378,7 +358,7 @@ func (c *connector) executeSnapshotOnly(ctx context.Context) error {
 		return errors.Wrap(err, "execute snapshot")
 	}
 
-	logger.Info("snapshot data collection completed", "snapshotLSN", snapshotLSN.String())
+	logger.Info("snapshot data collection completed")
 	return nil
 }
 
@@ -567,7 +547,7 @@ func (c *connector) Close() {
 
 	// Close replication slot and stream (nil in snapshot_only mode)
 	if c.slot != nil {
-		c.slot.Close()
+		c.slot.Close(ctx)
 	}
 	c.closeHeartbeatConn(ctx)
 	if c.stream != nil {
@@ -595,16 +575,18 @@ func (c *connector) CaptureSlot(ctx context.Context) {
 	for range ticker.C {
 		info, err := c.slot.Info(ctx)
 		if err != nil {
+			logger.Warn("slot info failed on capture slot", "error", err)
 			continue
 		}
 
-		if !info.Active {
-			break
+		if info.Active {
+			continue
 		}
 
 		if logger.IsDebugEnabled() {
 			logger.Debug("capture slot", "slotInfo", info)
 		}
+		break
 	}
 }
 
