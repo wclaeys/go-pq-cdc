@@ -49,6 +49,7 @@ type stream struct {
 	conn                pq.Connection
 	metric              metric.Metric
 	sinkEnd             chan struct{}
+	sinkStarted         chan struct{} // Signals when sink is actively receiving
 	relation            map[uint32]*format.Relation
 	messageCH           chan format.WALMessage
 	listenerFunc        ListenerFunc
@@ -71,6 +72,7 @@ func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metr
 		messageCH:    make(chan format.WALMessage, 1000),
 		listenerFunc: listenerFunc,
 		lastXLogPos:  10,
+		sinkStarted:  make(chan struct{}),
 		sinkEnd:      make(chan struct{}, 1),
 		mu:           &sync.RWMutex{},
 	}
@@ -127,6 +129,17 @@ func (s *stream) Open(ctx context.Context) error {
 
 	go s.process(ctx)
 
+	// Wait for sink goroutine to signal it's ready to receive messages.
+	// This ensures no WAL records are missed due to goroutine scheduling.
+	select {
+	case <-s.sinkStarted:
+		// Sink is ready
+	case <-time.After(10 * time.Second):
+		logger.Warn("timeout waiting for sink to start")
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+
 	logger.Info("cdc stream started")
 
 	return nil
@@ -167,10 +180,70 @@ func (s *stream) sink(ctx context.Context) {
 
 	var corruptedConn bool
 
+	// Get underlying net.Conn for direct deadline manipulation.
+	// This avoids the overhead of creating a new context for every message.
+	netConn := s.conn.NetConn()
+	if netConn == nil {
+		logger.Error("failed to get underlying net.Conn")
+		s.sinkEnd <- struct{}{}
+		return
+	}
+
+	// Timeout for read operations - used to periodically check for shutdown
+	// and send standby status updates.
+	const readTimeout = 300 * time.Millisecond
+
+	// Signal ready BEFORE first ReceiveMessage call.
+	// This ensures we're in the receive loop before Open() returns.
+	close(s.sinkStarted)
+
+	// Next scheduled standby status update. Keep this time-driven so updates
+	// are sent even when WAL is flowing continuously (i.e. no timeout occurs).
+	nextStatus := time.Now().Add(readTimeout)
+
+	// Cache the currently programmed deadline to avoid calling SetReadDeadline
+	// on every message. SetReadDeadline is the expensive part, not time.Now().Add.
+	var curDeadline time.Time
+
 	for {
-		msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
-		rawMsg, err := s.conn.ReceiveMessage(msgCtx)
-		cancel()
+		//msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
+		//rawMsg, err := s.conn.ReceiveMessage(msgCtx)
+		//cancel()
+
+		now := time.Now()
+
+		// Periodically send standby status updates regardless of traffic.
+		if !nextStatus.After(now) {
+			err := SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
+			if err != nil {
+				logger.Error("send stand by status update", "error", err)
+				break
+			}
+			if logger.IsDebugEnabled() {
+				logger.Debug("send stand by status update")
+			}
+			nextStatus = now.Add(readTimeout)
+		}
+
+		// Set deadline directly on the underlying connection.
+		// This is much faster than creating a new context every iteration.
+		//
+		// Performance: avoid calling SetReadDeadline for every message. Only refresh
+		// when the deadline actually changes (typically once per readTimeout).
+		deadline := nextStatus
+		if curDeadline.IsZero() || absDuration(curDeadline.Sub(deadline)) >= time.Millisecond {
+			if err := netConn.SetReadDeadline(deadline); err != nil {
+				logger.Error("failed to set read deadline", "error", err)
+				corruptedConn = true
+				break
+			}
+			curDeadline = deadline
+		}
+
+		// Use context.Background() to skip pgx's context watcher overhead.
+		// The read deadline set above handles timeouts directly.
+		rawMsg, err := s.conn.ReceiveMessage(context.Background())
+
 		if err != nil {
 			if s.closed.Load() {
 				logger.Info("stream stopped")
@@ -178,14 +251,7 @@ func (s *stream) sink(ctx context.Context) {
 			}
 
 			if pgconn.Timeout(err) {
-				err = SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
-				if err != nil {
-					logger.Error("send stand by status update", "error", err)
-					break
-				}
-				if logger.IsDebugEnabled() {
-					logger.Debug("send stand by status update")
-				}
+				// Timeout is now just a wake-up mechanism; standby updates are time-driven above.
 				continue
 			}
 			logger.Error("receive message error", "error", err)
@@ -209,7 +275,29 @@ func (s *stream) sink(ctx context.Context) {
 
 		switch msg.Data[0] {
 		case message.PrimaryKeepaliveMessageByteID:
+			// If the primary requests a reply, send a standby status update immediately.
+			//
+			// Primary keepalive payload (after the type byte) is:
+			//   int64 walEnd (big-endian)
+			//   int64 serverTime (big-endian)
+			//   byte  replyRequested (0/1)
+			//
+			// We only need replyRequested for behavior; parsing is allocation-free.
+			replyRequested, ok := parsePrimaryKeepaliveReplyRequested(msg.Data[1:])
+			if ok && replyRequested {
+				err := SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
+				if err != nil {
+					logger.Error("send stand by status update", "error", err)
+					break
+				}
+				if logger.IsDebugEnabled() {
+					logger.Debug("send stand by status update")
+				}
+				// Avoid immediately sending again in the time-driven section.
+				nextStatus = time.Now().Add(readTimeout)
+			}
 			continue
+
 		case message.XLogDataByteID:
 			xld, err = ParseXLogData(msg.Data[1:])
 			if err != nil {
@@ -225,10 +313,13 @@ func (s *stream) sink(ctx context.Context) {
 
 			var decodedMsg format.WALMessage
 			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation)
-			if err != nil || decodedMsg == nil {
-				if logger.IsDebugEnabled() {
-					logger.Debug("wal data message parsing error", "error", err)
-				}
+			if err != nil {
+				// Actual parsing error - log at error level
+				logger.Error("wal data message parsing error", "error", err)
+				continue
+			}
+			if decodedMsg == nil {
+				// Control message (Begin, Commit, etc.) - silently skip
 				continue
 			}
 
@@ -244,6 +335,27 @@ func (s *stream) sink(ctx context.Context) {
 			panic("corrupted connection")
 		}
 	}
+}
+
+func absDuration(d time.Duration) time.Duration {
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
+// parsePrimaryKeepaliveReplyRequested parses only the replyRequested flag from the primary keepalive message
+// payload (i.e., msg.Data[1:]). It returns (flag, true) if the payload is well-formed.
+func parsePrimaryKeepaliveReplyRequested(payload []byte) (bool, bool) {
+	// Expected length: 8 + 8 + 1 = 17 bytes.
+	if len(payload) < 17 {
+		return false, false
+	}
+	// walEnd := binary.BigEndian.Uint64(payload[0:8])
+	_ = binary.BigEndian.Uint64(payload[0:8])
+	// serverTime := binary.BigEndian.Uint64(payload[8:16])
+	_ = binary.BigEndian.Uint64(payload[8:16])
+	return payload[16] != 0, true
 }
 
 var _baseTime = time.Now()

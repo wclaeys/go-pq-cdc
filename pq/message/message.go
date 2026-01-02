@@ -48,6 +48,9 @@ func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32
 		return format.NewLogicalMessage(data, walStart, streamedTransaction, serverTime)
 	case TruncateByte:
 		return format.NewTruncate(data, walStart, streamedTransaction, relation, serverTime)
+	case BeginByte, CommitByte, OriginByte, TypeByte:
+		// Transaction control and metadata messages - silently ignore
+		return nil, nil
 	case StreamStopByte, StreamAbortByte, StreamCommitByte:
 		streamedTransaction = false
 		return nil, nil

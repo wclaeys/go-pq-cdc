@@ -2,6 +2,7 @@ package pq
 
 import (
 	"context"
+	"net"
 
 	"github.com/go-playground/errors"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,6 +17,9 @@ type Connection interface {
 	ReceiveMessage(ctx context.Context) (pgproto3.BackendMessage, error)
 	Frontend() *pgproto3.Frontend
 	Exec(ctx context.Context, sql string) *pgconn.MultiResultReader
+	// NetConn returns the underlying net.Conn for direct deadline manipulation.
+	// Returns nil if connection is not established.
+	NetConn() net.Conn
 }
 
 type connection struct {
@@ -52,6 +56,13 @@ func (c *connection) Connect(ctx context.Context) error {
 
 func (c *connection) IsClosed() bool {
 	return c.PgConn == nil || c.PgConn.IsClosed()
+}
+
+func (c *connection) NetConn() net.Conn {
+	if c.PgConn == nil {
+		return nil
+	}
+	return c.PgConn.Conn()
 }
 
 func connect(ctx context.Context, dsn string) (*pgconn.PgConn, error) {
