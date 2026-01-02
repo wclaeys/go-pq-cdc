@@ -79,3 +79,8 @@ func NewLogicalMessage(data []byte, _ pq.LSN, streamedTransaction bool, serverTi
 func (m *LogicalMessage) GetLSN() pq.LSN {
 	return m.LSN
 }
+
+// Implements the WALMessage interface
+func (m *LogicalMessage) SetLSN(lsn pq.LSN) {
+	m.LSN = lsn
+}

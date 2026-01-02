@@ -37,6 +37,11 @@ func (m *Delete) GetLSN() pq.LSN {
 	return m.LSN
 }
 
+// Implements the WALMessage interface
+func (m *Delete) SetLSN(lsn pq.LSN) {
+	m.LSN = lsn
+}
+
 func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
 	skipByte := 1
 

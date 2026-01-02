@@ -30,6 +30,11 @@ func (m *Truncate) GetLSN() pq.LSN {
 	return m.lsn
 }
 
+// Implements the WALMessage interface
+func (m *Truncate) SetLSN(lsn pq.LSN) {
+	m.lsn = lsn
+}
+
 // NewTruncate parses the TRUNCATE message body (after the leading 'T' byte).
 // If streamedTransaction is true, the XID is present at the front of the message.
 func NewTruncate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Truncate, error) {

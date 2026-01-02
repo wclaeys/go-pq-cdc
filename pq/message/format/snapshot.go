@@ -31,3 +31,8 @@ type Snapshot struct {
 func (s *Snapshot) GetLSN() pq.LSN {
 	return s.LSN
 }
+
+// Implements the WALMessage interface
+func (s *Snapshot) SetLSN(lsn pq.LSN) {
+	s.LSN = lsn
+}

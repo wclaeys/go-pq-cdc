@@ -40,6 +40,11 @@ func (m *Insert) GetLSN() pq.LSN {
 	return m.LSN
 }
 
+// Implements the WALMessage interface
+func (m *Insert) SetLSN(lsn pq.LSN) {
+	m.LSN = lsn
+}
+
 func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
 	skipByte := 1
 

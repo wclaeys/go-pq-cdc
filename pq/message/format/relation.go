@@ -36,6 +36,11 @@ func (m *Relation) GetLSN() pq.LSN {
 	return m.lsn
 }
 
+// Implements the WALMessage interface
+func (m *Relation) SetLSN(lsn pq.LSN) {
+	m.lsn = lsn
+}
+
 func (m *Relation) decode(data []byte, streamedTransaction bool) error {
 	skipByte := 1
 

@@ -38,6 +38,10 @@ var streamedTransaction bool
 
 func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation) (format.WALMessage, error) {
 	switch Type(data[0]) {
+	case BeginByte:
+		return format.NewBegin(data)
+	case CommitByte:
+		return format.NewCommit(data)
 	case InsertByte:
 		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime)
 	case UpdateByte:
@@ -48,7 +52,7 @@ func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32
 		return format.NewLogicalMessage(data, walStart, streamedTransaction, serverTime)
 	case TruncateByte:
 		return format.NewTruncate(data, walStart, streamedTransaction, relation, serverTime)
-	case BeginByte, CommitByte, OriginByte, TypeByte:
+	case OriginByte, TypeByte:
 		// Transaction control and metadata messages - silently ignore
 		return nil, nil
 	case StreamStopByte, StreamAbortByte, StreamCommitByte:

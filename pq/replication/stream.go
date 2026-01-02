@@ -71,10 +71,12 @@ func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metr
 		relation:     make(map[uint32]*format.Relation),
 		messageCH:    make(chan format.WALMessage, 1000),
 		listenerFunc: listenerFunc,
-		lastXLogPos:  10,
-		sinkStarted:  make(chan struct{}),
-		sinkEnd:      make(chan struct{}, 1),
-		mu:           &sync.RWMutex{},
+		// lastXLogPos:0 is not magical, 0 means, create replication starts with confirmed_flush_lsn
+		// https://github.com/postgres/postgres/blob/master/src/include/access/xlogdefs.h#L28
+		// https://github.com/postgres/postgres/blob/master/src/backend/replication/logical/logical.c#L540
+		lastXLogPos: 0,
+		sinkEnd:     make(chan struct{}, 1),
+		mu:          &sync.RWMutex{},
 	}
 	stream.acknowledger = stream.createAcknowledger(ctx)
 	return stream
@@ -86,11 +88,11 @@ func (s *stream) Acknowledge(lsn pq.LSN) error {
 
 func (s *stream) createAcknowledger(ctx context.Context) Acknowledger {
 	return func(pos pq.LSN) error {
-		s.system.UpdateXLogPos(pos)
+		s.UpdateXLogPos(pos)
 		if logger.IsDebugEnabled() {
-			logger.Debug("send stand by status update", "xLogPos", pos.String())
+			logger.Debug("send stand by status update", "xLogPos", s.LoadXLogPos().String())
 		}
-		return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.system.LoadXLogPos()))
+		return SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
 	}
 }
 
@@ -148,7 +150,7 @@ func (s *stream) Open(ctx context.Context) error {
 func (s *stream) setup(ctx context.Context) error {
 	replication := New(s.conn)
 
-	replicationStartLsn := pq.LSN(2)
+	replicationStartLsn := s.lastXLogPos
 	if s.openFromSnapshotLSN {
 		snapshotLSN, err := s.fetchSnapshotLSN(ctx)
 		if err != nil {
@@ -166,9 +168,9 @@ func (s *stream) setup(ctx context.Context) error {
 	}
 
 	if s.openFromSnapshotLSN {
-		logger.Info("replication started from snapshot LSN", "slot", s.config.Slot.Name)
+		logger.Info("replication started from snapshot LSN", "slot", s.config.Slot.Name, "lsn", replicationStartLsn.String())
 	} else {
-		logger.Info("replication started from restart LSN", "slot", s.config.Slot.Name)
+		logger.Info("replication started from confirmed_flush_lsn", "slot", s.config.Slot.Name)
 	}
 
 	return nil
@@ -179,6 +181,13 @@ func (s *stream) sink(ctx context.Context) {
 	logger.Info("postgres message sink started")
 
 	var corruptedConn bool
+
+	// prevMessage holds the last data change message seen in the current transaction.
+	// We only need to retain a single message so that we can rewrite its WAL position
+	// to the transaction end LSN once the COMMIT is received. All other messages can
+	// be streamed to the listener immediately. This keeps memory usage constant even
+	// for very large transactions (e.g., COPY commands).
+	var prevMessage format.WALMessage
 
 	// Get underlying net.Conn for direct deadline manipulation.
 	// This avoids the overhead of creating a new context for every message.
@@ -193,9 +202,9 @@ func (s *stream) sink(ctx context.Context) {
 	// and send standby status updates.
 	const readTimeout = 300 * time.Millisecond
 
-	// Signal ready BEFORE first ReceiveMessage call.
-	// This ensures we're in the receive loop before Open() returns.
-	close(s.sinkStarted)
+	// Skew the deadline slightly forward to reduce the chance of grazing the
+	// boundary under scheduler jitter / GC pauses.
+	const deadlineRefreshSkew = 2 * time.Millisecond
 
 	// Next scheduled standby status update. Keep this time-driven so updates
 	// are sent even when WAL is flowing continuously (i.e. no timeout occurs).
@@ -213,24 +222,29 @@ func (s *stream) sink(ctx context.Context) {
 		now := time.Now()
 
 		// Periodically send standby status updates regardless of traffic.
+		// This avoids relying on timeouts as control flow and ensures feedback
+		// is sent even under continuous WAL load.
 		if !nextStatus.After(now) {
 			err := SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
 			if err != nil {
 				logger.Error("send stand by status update", "error", err)
+				corruptedConn = true
 				break
 			}
-			if logger.IsDebugEnabled() {
-				logger.Debug("send stand by status update")
-			}
+			logger.Debug("send stand by status update")
 			nextStatus = now.Add(readTimeout)
 		}
 
+		// msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
+		// rawMsg, err := s.conn.ReceiveMessage(msgCtx)
+		// cancel()
+		//
 		// Set deadline directly on the underlying connection.
 		// This is much faster than creating a new context every iteration.
 		//
 		// Performance: avoid calling SetReadDeadline for every message. Only refresh
 		// when the deadline actually changes (typically once per readTimeout).
-		deadline := nextStatus
+		deadline := nextStatus.Add(deadlineRefreshSkew)
 		if curDeadline.IsZero() || absDuration(curDeadline.Sub(deadline)) >= time.Millisecond {
 			if err := netConn.SetReadDeadline(deadline); err != nil {
 				logger.Error("failed to set read deadline", "error", err)
@@ -275,25 +289,19 @@ func (s *stream) sink(ctx context.Context) {
 
 		switch msg.Data[0] {
 		case message.PrimaryKeepaliveMessageByteID:
-			// If the primary requests a reply, send a standby status update immediately.
-			//
-			// Primary keepalive payload (after the type byte) is:
-			//   int64 walEnd (big-endian)
-			//   int64 serverTime (big-endian)
-			//   byte  replyRequested (0/1)
-			//
-			// We only need replyRequested for behavior; parsing is allocation-free.
-			replyRequested, ok := parsePrimaryKeepaliveReplyRequested(msg.Data[1:])
-			if ok && replyRequested {
-				err := SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
-				if err != nil {
-					logger.Error("send stand by status update", "error", err)
+			pkm, errPKM := format.NewPrimaryKeepaliveMessage(msg.Data[1:])
+			if errPKM != nil {
+				logger.Error("decode primary keepalive message", "error", errPKM)
+				continue
+			}
+			if pkm.ReplyRequested {
+				if err = SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos())); err != nil {
+					logger.Error("standby status update", "error", err)
+					corruptedConn = true
 					break
 				}
-				if logger.IsDebugEnabled() {
-					logger.Debug("send stand by status update")
-				}
-				// Avoid immediately sending again in the time-driven section.
+				logger.Debug("standby status update sent on keepalive request")
+				// Avoid immediately sending again in the periodic section.
 				nextStatus = time.Now().Add(readTimeout)
 			}
 			continue
@@ -309,25 +317,43 @@ func (s *stream) sink(ctx context.Context) {
 				logger.Debug("wal received", "walData", string(xld.WALData), "walDataByte", slice.ConvertToInt(xld.WALData), "walStart", xld.WALStart, "walEnd", xld.ServerWALEnd, "serverTime", xld.ServerTime)
 			}
 
+			// Use time.Since to leverage Go's monotonic clock when available.
 			s.metric.SetCDCLatency(max(time.Since(xld.ServerTime), time.Duration(0)).Nanoseconds())
 
 			var decodedMsg format.WALMessage
 			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation)
 			if err != nil {
-				// Actual parsing error - log at error level
-				logger.Error("wal data message parsing error", "error", err)
+				logger.Debug("wal data message parsing error", "error", err)
 				continue
 			}
 			if decodedMsg == nil {
-				// Control message (Begin, Commit, etc.) - silently skip
+				// Control message (OriginByte, TypeByte, etc.) - silently skip
+				continue
+			}
+			if _, ok := decodedMsg.(*format.Begin); ok {
+				// Start of a new transaction – reset state
+				prevMessage = nil
+				continue
+			}
+			if commitMsg, ok := decodedMsg.(*format.Commit); ok {
+				// Emit the last buffered message (if any) rewriting its WAL position
+				if prevMessage != nil {
+					// Rewrite the last message's LSN to the transaction end LSN
+					prevMessage.SetLSN(commitMsg.TransactionEndLSN)
+					s.messageCH <- prevMessage
+				}
+				prevMessage = nil
 				continue
 			}
 
-			s.messageCH <- decodedMsg
+			// For DML events we keep at most one message buffered. Older message is flushed.
+			if prevMessage != nil {
+				s.messageCH <- prevMessage
+			}
+			prevMessage = decodedMsg
 		}
 	}
 
-	// Teardown
 	s.sinkEnd <- struct{}{}
 	if !s.closed.Load() {
 		s.Close(ctx)
@@ -342,20 +368,6 @@ func absDuration(d time.Duration) time.Duration {
 		return -d
 	}
 	return d
-}
-
-// parsePrimaryKeepaliveReplyRequested parses only the replyRequested flag from the primary keepalive message
-// payload (i.e., msg.Data[1:]). It returns (flag, true) if the payload is well-formed.
-func parsePrimaryKeepaliveReplyRequested(payload []byte) (bool, bool) {
-	// Expected length: 8 + 8 + 1 = 17 bytes.
-	if len(payload) < 17 {
-		return false, false
-	}
-	// walEnd := binary.BigEndian.Uint64(payload[0:8])
-	_ = binary.BigEndian.Uint64(payload[0:8])
-	// serverTime := binary.BigEndian.Uint64(payload[8:16])
-	_ = binary.BigEndian.Uint64(payload[8:16])
-	return payload[16] != 0, true
 }
 
 var _baseTime = time.Now()
