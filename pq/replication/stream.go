@@ -76,6 +76,7 @@ func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metr
 		// https://github.com/postgres/postgres/blob/master/src/backend/replication/logical/logical.c#L540
 		lastXLogPos: 0,
 		sinkEnd:     make(chan struct{}, 1),
+		sinkStarted: make(chan struct{}, 1),
 		mu:          &sync.RWMutex{},
 	}
 	stream.acknowledger = stream.createAcknowledger(ctx)
@@ -179,6 +180,9 @@ func (s *stream) setup(ctx context.Context) error {
 //nolint:funlen
 func (s *stream) sink(ctx context.Context) {
 	logger.Info("postgres message sink started")
+
+	// Signal that sink is ready to receive messages
+	close(s.sinkStarted)
 
 	var corruptedConn bool
 
@@ -298,7 +302,9 @@ func (s *stream) sink(ctx context.Context) {
 	if !s.closed.Load() {
 		s.Close(ctx)
 		if corruptedConn {
-			panic("corrupted connection")
+			// Log instead of panic - corrupted connection during shutdown is expected
+			// when the database terminates before explicit Close() is called.
+			logger.Error("connection corrupted during sink shutdown")
 		}
 	}
 }
