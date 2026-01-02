@@ -189,75 +189,10 @@ func (s *stream) sink(ctx context.Context) {
 	// for very large transactions (e.g., COPY commands).
 	var prevMessage format.WALMessage
 
-	// Get underlying net.Conn for direct deadline manipulation.
-	// This avoids the overhead of creating a new context for every message.
-	netConn := s.conn.NetConn()
-	if netConn == nil {
-		logger.Error("failed to get underlying net.Conn")
-		s.sinkEnd <- struct{}{}
-		return
-	}
-
-	// Timeout for read operations - used to periodically check for shutdown
-	// and send standby status updates.
-	const readTimeout = 300 * time.Millisecond
-
-	// Skew the deadline slightly forward to reduce the chance of grazing the
-	// boundary under scheduler jitter / GC pauses.
-	const deadlineRefreshSkew = 2 * time.Millisecond
-
-	// Next scheduled standby status update. Keep this time-driven so updates
-	// are sent even when WAL is flowing continuously (i.e. no timeout occurs).
-	nextStatus := time.Now().Add(readTimeout)
-
-	// Cache the currently programmed deadline to avoid calling SetReadDeadline
-	// on every message. SetReadDeadline is the expensive part, not time.Now().Add.
-	var curDeadline time.Time
-
 	for {
-		//msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
-		//rawMsg, err := s.conn.ReceiveMessage(msgCtx)
-		//cancel()
-
-		now := time.Now()
-
-		// Periodically send standby status updates regardless of traffic.
-		// This avoids relying on timeouts as control flow and ensures feedback
-		// is sent even under continuous WAL load.
-		if !nextStatus.After(now) {
-			err := SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
-			if err != nil {
-				logger.Error("send stand by status update", "error", err)
-				corruptedConn = true
-				break
-			}
-			logger.Debug("send stand by status update")
-			nextStatus = now.Add(readTimeout)
-		}
-
-		// msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
-		// rawMsg, err := s.conn.ReceiveMessage(msgCtx)
-		// cancel()
-		//
-		// Set deadline directly on the underlying connection.
-		// This is much faster than creating a new context every iteration.
-		//
-		// Performance: avoid calling SetReadDeadline for every message. Only refresh
-		// when the deadline actually changes (typically once per readTimeout).
-		deadline := nextStatus.Add(deadlineRefreshSkew)
-		if curDeadline.IsZero() || absDuration(curDeadline.Sub(deadline)) >= time.Millisecond {
-			if err := netConn.SetReadDeadline(deadline); err != nil {
-				logger.Error("failed to set read deadline", "error", err)
-				corruptedConn = true
-				break
-			}
-			curDeadline = deadline
-		}
-
-		// Use context.Background() to skip pgx's context watcher overhead.
-		// The read deadline set above handles timeouts directly.
-		rawMsg, err := s.conn.ReceiveMessage(context.Background())
-
+		msgCtx, cancel := context.WithDeadline(context.Background(), time.Now().Add(time.Millisecond*300))
+		rawMsg, err := s.conn.ReceiveMessage(msgCtx)
+		cancel()
 		if err != nil {
 			if s.closed.Load() {
 				logger.Info("stream stopped")
@@ -265,7 +200,15 @@ func (s *stream) sink(ctx context.Context) {
 			}
 
 			if pgconn.Timeout(err) {
-				// Timeout is now just a wake-up mechanism; standby updates are time-driven above.
+				err = SendStandbyStatusUpdate(ctx, s.conn, uint64(s.LoadXLogPos()))
+				if err != nil {
+					logger.Error("send stand by status update", "error", err)
+					corruptedConn = true
+					break
+				}
+				if logger.IsDebugEnabled() {
+					logger.Debug("send stand by status update")
+				}
 				continue
 			}
 			logger.Error("receive message error", "error", err)
@@ -300,12 +243,11 @@ func (s *stream) sink(ctx context.Context) {
 					corruptedConn = true
 					break
 				}
-				logger.Debug("standby status update sent on keepalive request")
-				// Avoid immediately sending again in the periodic section.
-				nextStatus = time.Now().Add(readTimeout)
+				if logger.IsDebugEnabled() {
+					logger.Debug("standby status update sent on keepalive request")
+				}
 			}
 			continue
-
 		case message.XLogDataByteID:
 			xld, err = ParseXLogData(msg.Data[1:])
 			if err != nil {
@@ -318,7 +260,7 @@ func (s *stream) sink(ctx context.Context) {
 			}
 
 			// Use time.Since to leverage Go's monotonic clock when available.
-			s.metric.SetCDCLatency(max(time.Since(xld.ServerTime), time.Duration(0)).Nanoseconds())
+			s.metric.SetCDCLatency(time.Since(xld.ServerTime).Nanoseconds())
 
 			var decodedMsg format.WALMessage
 			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation)
@@ -338,7 +280,6 @@ func (s *stream) sink(ctx context.Context) {
 			if commitMsg, ok := decodedMsg.(*format.Commit); ok {
 				// Emit the last buffered message (if any) rewriting its WAL position
 				if prevMessage != nil {
-					// Rewrite the last message's LSN to the transaction end LSN
 					prevMessage.SetLSN(commitMsg.TransactionEndLSN)
 					s.messageCH <- prevMessage
 				}
@@ -353,7 +294,6 @@ func (s *stream) sink(ctx context.Context) {
 			prevMessage = decodedMsg
 		}
 	}
-
 	s.sinkEnd <- struct{}{}
 	if !s.closed.Load() {
 		s.Close(ctx)
@@ -361,13 +301,6 @@ func (s *stream) sink(ctx context.Context) {
 			panic("corrupted connection")
 		}
 	}
-}
-
-func absDuration(d time.Duration) time.Duration {
-	if d < 0 {
-		return -d
-	}
-	return d
 }
 
 var _baseTime = time.Now()
