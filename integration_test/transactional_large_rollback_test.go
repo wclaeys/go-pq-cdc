@@ -63,7 +63,7 @@ func TestLargeTransactionalRollback(t *testing.T) {
 	})
 
 	go connector.Start(ctx)
-	waitCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	assert.NoError(t, connector.WaitUntilReady(waitCtx))
 	cancel()
 

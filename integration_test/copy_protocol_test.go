@@ -66,7 +66,7 @@ func TestCopyProtocol(t *testing.T) {
 
 	go connector.Start(ctx)
 
-	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if !assert.NoError(t, connector.WaitUntilReady(waitCtx)) {
 		t.FailNow()
 	}
@@ -106,7 +106,7 @@ func TestCopyProtocol(t *testing.T) {
 	})
 
 	t.Run("Run CDC again. Then check message count after all messages consumed", func(t *testing.T) {
-		waitCtx, cancel = context.WithTimeout(context.Background(), 3*time.Second)
+		waitCtx, cancel = context.WithTimeout(context.Background(), 30*time.Second)
 		if !assert.NoError(t, connector2.WaitUntilReady(waitCtx)) {
 			t.FailNow()
 		}

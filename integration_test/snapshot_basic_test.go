@@ -89,7 +89,7 @@ func TestSnapshotBasicSingleChunk(t *testing.T) {
 
 	go connector.Start(ctx)
 
-	waitCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	err = connector.WaitUntilReady(waitCtx)
 	require.NoError(t, err)

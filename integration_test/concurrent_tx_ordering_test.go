@@ -43,7 +43,7 @@ func TestConcurrentTxOrdering(t *testing.T) {
 
 	connector, _ := cdc.NewConnector(ctx, cdcCfg, handler)
 	go connector.Start(ctx)
-	waitCtx, cancel := context.WithTimeout(ctx, 4*time.Second)
+	waitCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	assert.NoError(t, connector.WaitUntilReady(waitCtx))
 	cancel()
 

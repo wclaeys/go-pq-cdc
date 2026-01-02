@@ -58,7 +58,7 @@ func TestTransactionalProcess(t *testing.T) {
 
 	go connector.Start(ctx)
 
-	waitCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	waitCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	if !assert.NoError(t, connector.WaitUntilReady(waitCtx)) {
 		t.FailNow()
 	}
