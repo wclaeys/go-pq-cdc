@@ -33,7 +33,7 @@ func (p *PrimaryKeepaliveMessage) decode(data []byte) error {
 	}
 
 	p.ServerWALEnd = pq.LSN(binary.BigEndian.Uint64(data))
-	p.ServerTime = pgTimeToTime(int64(binary.BigEndian.Uint64(data[8:])))
+	p.ServerTime = pgTimeToTime(int64(binary.BigEndian.Uint64(data[8:]))) //nolint:gosec
 	p.ReplyRequested = data[16] != 0
 	return nil
 }

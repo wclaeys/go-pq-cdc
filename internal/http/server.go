@@ -1,3 +1,4 @@
+//revive:disable:var-naming // intentional: internal package name "http" (not net/http)
 package http
 
 import (

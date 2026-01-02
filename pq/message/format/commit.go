@@ -36,17 +36,17 @@ func (c *Commit) decode(data []byte) error {
 	skipByte += 8
 	c.TransactionEndLSN = pq.LSN(binary.BigEndian.Uint64(data[skipByte:]))
 	skipByte += 8
-	c.CommitTime = time.Unix(int64(binary.BigEndian.Uint64(data[skipByte:])), 0)
+	c.CommitTime = time.Unix(int64(binary.BigEndian.Uint64(data[skipByte:])), 0) //nolint:gosec
 
 	return nil
 }
 
 // Implements the WALMessage interface
-func (m *Commit) GetLSN() pq.LSN {
-	return m.CommitLSN
+func (c *Commit) GetLSN() pq.LSN {
+	return c.CommitLSN
 }
 
 // Implements the WALMessage interface
-func (m *Commit) SetLSN(lsn pq.LSN) {
-	m.CommitLSN = lsn
+func (c *Commit) SetLSN(lsn pq.LSN) {
+	c.CommitLSN = lsn
 }

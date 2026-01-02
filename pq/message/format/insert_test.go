@@ -58,5 +58,5 @@ func TestInsert_New(t *testing.T) {
 		MessageTime:    now,
 	}
 
-	assert.EqualValues(t, expected, msg)
+	assert.Equal(t, expected, msg)
 }

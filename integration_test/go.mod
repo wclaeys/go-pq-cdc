@@ -1,6 +1,6 @@
 module github.com/wclaeys/go-pq-cdc/integration
 
-go 1.25.5
+go 1.25.4
 
 replace github.com/wclaeys/go-pq-cdc => ../
 

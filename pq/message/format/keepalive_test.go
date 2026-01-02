@@ -20,7 +20,7 @@ func TestNewPrimaryKeepaliveMessage(t *testing.T) {
 
 		data := make([]byte, 17)
 		binary.BigEndian.PutUint64(data[0:], walEnd)
-		binary.BigEndian.PutUint64(data[8:], uint64(microSinceY2K))
+		binary.BigEndian.PutUint64(data[8:], uint64(microSinceY2K)) //nolint:gosec
 		data[16] = replyRequested
 
 		// When

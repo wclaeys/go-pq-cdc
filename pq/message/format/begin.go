@@ -31,7 +31,7 @@ func (b *Begin) decode(data []byte) error {
 
 	b.FinalLSN = pq.LSN(binary.BigEndian.Uint64(data[skipByte:]))
 	skipByte += 8
-	b.CommitTime = time.Unix(int64(binary.BigEndian.Uint64(data[skipByte:])), 0)
+	b.CommitTime = time.Unix(int64(binary.BigEndian.Uint64(data[skipByte:])), 0) //nolint:gosec
 	skipByte += 8
 	b.Xid = binary.BigEndian.Uint32(data[skipByte:])
 
@@ -39,11 +39,11 @@ func (b *Begin) decode(data []byte) error {
 }
 
 // Implements the WALMessage interface
-func (m *Begin) GetLSN() pq.LSN {
-	return m.FinalLSN
+func (b *Begin) GetLSN() pq.LSN {
+	return b.FinalLSN
 }
 
 // Implements the WALMessage interface
-func (m *Begin) SetLSN(lsn pq.LSN) {
-	m.FinalLSN = lsn
+func (b *Begin) SetLSN(lsn pq.LSN) {
+	b.FinalLSN = lsn
 }
