@@ -115,7 +115,7 @@ FOR EACH ROW EXECUTE FUNCTION it_emit_msg();
 			m := <-messageCh
 			if i == 0 {
 				// First we get the Update event.
-				assert.Equal(t, books[i].Map(), m.(*format.Update).NewTupleData)
+				assert.Equal(t, books[i].Array(), m.(*format.Update).NewTupleData)
 				continue
 			}
 			if i == 1 {

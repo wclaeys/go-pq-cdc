@@ -25,7 +25,7 @@ type RelationColumn struct {
 	Flags        uint8
 }
 
-func NewData(data []byte, tupleDataType uint8, skipByteLength int, columns []RelationColumn, toastedValuesBackup map[string]any) (map[string]any, int, error) {
+func NewData(data []byte, tupleDataType uint8, skipByteLength int, columns []RelationColumn, decodeData bool, toastedValuesBackup []any) ([]any, int, error) {
 	if data[skipByteLength] != tupleDataType {
 		return nil, skipByteLength, errors.New("invalid tuple data type: " + string(data[skipByteLength]))
 	}
@@ -34,34 +34,32 @@ func NewData(data []byte, tupleDataType uint8, skipByteLength int, columns []Rel
 	columnNumber := binary.BigEndian.Uint16(data[skipByteLength:])
 	skipByteLength += 2
 
-	decoded := make(map[string]any, columnNumber)
+	tupleData := make([]any, columnNumber)
 
-	for _, col := range columns {
+	for i := range columns {
 		dataType := data[skipByteLength]
 		skipByteLength++
 
 		switch dataType {
 		case DataTypeNull:
-			decoded[col.Name] = nil
+			tupleData[i] = nil
 		case DataTypeToast:
 			// no payload
 			if toastedValuesBackup != nil {
-				if val, ok := toastedValuesBackup[col.Name]; ok {
-					decoded[col.Name] = val
-				}
+				tupleData[i] = toastedValuesBackup[i]
 			}
 		case DataTypeText, DataTypeBinary:
 			length := binary.BigEndian.Uint32(data[skipByteLength:])
 			skipByteLength += 4
 
-			if dataType == DataTypeText {
-				val, err := decodeTextColumnData(data[skipByteLength:skipByteLength+int(length)], col.DataType)
+			if decodeData && dataType == DataTypeText {
+				val, err := decodeColumnData(data[skipByteLength:skipByteLength+int(length)], columns[i].DataType)
 				if err != nil {
 					return nil, skipByteLength, errors.Wrap(err, "decode column")
 				}
-				decoded[col.Name] = val
+				tupleData[i] = val
 			} else {
-				decoded[col.Name] = data[skipByteLength : skipByteLength+int(length)]
+				tupleData[i] = data[skipByteLength : skipByteLength+int(length)]
 			}
 			skipByteLength += int(length)
 
@@ -70,10 +68,30 @@ func NewData(data []byte, tupleDataType uint8, skipByteLength int, columns []Rel
 		}
 	}
 
-	return decoded, skipByteLength, nil
+	return tupleData, skipByteLength, nil
 }
 
-func decodeTextColumnData(data []byte, dataType uint32) (any, error) {
+func GetDecodedValue(tupleData []any, columns []RelationColumn, columnIndex int) (any, error) {
+	if tupleData == nil || len(tupleData) <= columnIndex {
+		return nil, nil
+	}
+	value := tupleData[columnIndex]
+	if value == nil {
+		return nil, nil
+	}
+	switch b := (value).(type) {
+	case []byte:
+		decodedValue, err := decodeColumnData(b, columns[columnIndex].DataType)
+		if err != nil {
+			return nil, errors.Newf("unable to decode delete message column %d: %v", columnIndex, err)
+		}
+		return decodedValue, nil
+	default:
+		return value, nil
+	}
+}
+
+func decodeColumnData(data []byte, dataType uint32) (any, error) {
 	if dt, ok := typeMap.TypeForOID(dataType); ok {
 		return dt.Codec.DecodeValue(typeMap, dataType, pgtype.TextFormatCode, data)
 	}

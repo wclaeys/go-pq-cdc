@@ -181,7 +181,7 @@ collectCDC:
 		select {
 		case msg := <-messageCh:
 			if insertMsg, ok := msg.(*format.Insert); ok {
-				cdcInsertReceived = append(cdcInsertReceived, insertMsg.TupleData)
+				cdcInsertReceived = append(cdcInsertReceived, insertToMap(insertMsg))
 				if len(cdcInsertReceived)%10 == 0 {
 					t.Logf("🔄 CDC progress: %d INSERT events received", len(cdcInsertReceived))
 				}

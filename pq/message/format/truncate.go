@@ -12,17 +12,11 @@ import (
 // https://www.postgresql.org/docs/current/protocol-logicalrep-message-formats.html
 type Truncate struct {
 	MessageTime     time.Time
-	Relations       []TruncateRelation
+	Relations       []*Relation
 	XID             uint32 // Transaction ID of the transaction that caused this message
 	Cascade         bool
 	RestartIdentity bool
 	lsn             pq.LSN
-}
-
-type TruncateRelation struct {
-	TableNamespace string
-	TableName      string
-	OID            uint32
 }
 
 // Implements the WALMessage interface
@@ -71,7 +65,7 @@ func NewTruncate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map
 	t.RestartIdentity = (opts & 0x02) != 0
 
 	// Read OIDs and map to known relations
-	t.Relations = make([]TruncateRelation, 0, n)
+	t.Relations = make([]*Relation, 0, n)
 	for i := range n {
 		if len(data) < skipByte+4 {
 			return nil, fmt.Errorf("truncate: missing relation oid %d", i)
@@ -84,11 +78,7 @@ func NewTruncate(data []byte, lsn pq.LSN, streamedTransaction bool, relation map
 			return nil, fmt.Errorf("truncate: unknown relation oid=%d", oid)
 		}
 
-		t.Relations = append(t.Relations, TruncateRelation{
-			TableNamespace: rel.Namespace,
-			TableName:      rel.Name,
-			OID:            oid,
-		})
+		t.Relations = append(t.Relations, rel)
 	}
 
 	return t, nil

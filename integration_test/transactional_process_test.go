@@ -78,9 +78,15 @@ func TestTransactionalProcess(t *testing.T) {
 		assert.NoError(t, err)
 
 		insertMessage := <-messageCh
-		assert.Equal(t, map[string]any{"id": int32(12), "name": "j*va is best"}, insertMessage.(*format.Insert).TupleData)
+		ins := insertMessage.(*format.Insert)
+		idIndex, _ := ins.Relation.GetColumnIndexByName("id")
+		nameIndex, _ := ins.Relation.GetColumnIndexByName("name")
+		assert.Equal(t, int32(12), ins.TupleData[idIndex])
+		assert.Equal(t, "j*va is best", ins.TupleData[nameIndex])
 		updateMessage := <-messageCh
-		assert.Equal(t, map[string]any{"id": int32(12), "name": "go is best"}, updateMessage.(*format.Update).NewTupleData)
+		up := updateMessage.(*format.Update)
+		assert.Equal(t, int32(12), up.NewTupleData[idIndex])
+		assert.Equal(t, "go is best", up.NewTupleData[nameIndex])
 
 		updateMetric, _ := fetchUpdateOpMetric()
 		insertMetric, _ := fetchInsertOpMetric()
@@ -107,7 +113,9 @@ func TestTransactionalProcess(t *testing.T) {
 		assert.NoError(t, err)
 
 		deleteMessage := <-messageCh
-		assert.Equal(t, int32(12), deleteMessage.(*format.Delete).OldTupleData["id"])
+		del := deleteMessage.(*format.Delete)
+		idIndexDel, _ := del.Relation.GetColumnIndexByName("id")
+		assert.Equal(t, int32(12), del.OldTupleData[idIndexDel])
 
 		updateMetric, _ := fetchUpdateOpMetric()
 		insertMetric, _ := fetchInsertOpMetric()

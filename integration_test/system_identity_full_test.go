@@ -76,10 +76,16 @@ func TestReplicaIdentityDefault(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
+		idIndex := -1
 		for i := range 5 {
 			m := <-messageCh
-			assert.Equal(t, booksNew[i].Map(), m.(*format.Update).NewTupleData)
-			assert.Nil(t, m.(*format.Update).OldTupleData["id"])
+			if idIndex == -1 {
+				idIndex, _ = m.(*format.Update).Relation.GetColumnIndexByName("id")
+			}
+			assert.Equal(t, booksNew[i].Array(), m.(*format.Update).NewTupleData)
+			value, err := m.(*format.Update).GetDecodedOldValue(idIndex)
+			assert.NoError(t, err)
+			assert.Nil(t, value)
 		}
 	})
 }
@@ -149,8 +155,8 @@ func TestReplicaIdentityFull(t *testing.T) {
 
 		for i := range 5 {
 			m := <-messageCh
-			assert.Equal(t, booksNew[i].Map(), m.(*format.Update).NewTupleData)
-			assert.Equal(t, books[i].Map(), m.(*format.Update).OldTupleData)
+			assert.Equal(t, booksNew[i].Array(), m.(*format.Update).NewTupleData)
+			assert.Equal(t, books[i].Array(), m.(*format.Update).OldTupleData)
 		}
 	})
 }

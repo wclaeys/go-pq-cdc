@@ -136,8 +136,9 @@ func TestSnapshotBasicSingleChunk(t *testing.T) {
 	select {
 	case msg := <-messageCh:
 		if insertMsg, ok := msg.(*format.Insert); ok {
-			cdcInsertReceived = append(cdcInsertReceived, insertMsg.TupleData)
-			t.Logf("🔄 CDC INSERT received: %v", insertMsg.TupleData)
+			mapval := insertToMap(insertMsg)
+			cdcInsertReceived = append(cdcInsertReceived, mapval)
+			t.Logf("🔄 CDC INSERT received: %v", mapval)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Timeout waiting for CDC insert event")

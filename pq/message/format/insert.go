@@ -14,21 +14,19 @@ const (
 )
 
 type Insert struct {
-	MessageTime    time.Time
-	TupleData      map[string]any
-	TableNamespace string
-	TableName      string
-	OID            uint32 // Object IDentifier of the relation (table)
-	XID            uint32 // Transaction ID of the transaction that caused this message
-	LSN            pq.LSN
+	MessageTime time.Time
+	Relation    *Relation
+	TupleData   []any
+	LSN         pq.LSN
+	XID         uint32
 }
 
-func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Insert, error) {
+func NewInsert(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, decodeData bool) (*Insert, error) {
 	msg := &Insert{
 		MessageTime: serverTime,
 		LSN:         lsn,
 	}
-	if err := msg.decode(data, streamedTransaction, relation); err != nil {
+	if err := msg.decode(data, streamedTransaction, relation, decodeData); err != nil {
 		return nil, err
 	}
 
@@ -45,7 +43,22 @@ func (m *Insert) SetLSN(lsn pq.LSN) {
 	m.LSN = lsn
 }
 
-func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
+// Implements the DataWALMessage interface
+func (m *Insert) GetDecodedValue(columnIndex int) (any, error) {
+	return tuple.GetDecodedValue(m.TupleData, m.Relation.Columns, columnIndex)
+}
+
+// Implements the DataWALMessage interface
+func (m *Insert) GetData() []any {
+	return m.TupleData
+}
+
+// Implements the DataWALMessage interface
+func (m *Insert) GetRelation() *Relation {
+	return m.Relation
+}
+
+func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation, decodeData bool) error {
 	skipByte := 1
 
 	if streamedTransaction {
@@ -61,18 +74,17 @@ func (m *Insert) decode(data []byte, streamedTransaction bool, relation map[uint
 		return errors.Newf("insert message length must be at least 9 byte, but got %d", len(data))
 	}
 
-	m.OID = binary.BigEndian.Uint32(data[skipByte:])
+	OID := binary.BigEndian.Uint32(data[skipByte:])
 	skipByte += 4
 
-	rel, ok := relation[m.OID]
+	rel, ok := relation[OID]
 	if !ok {
-		return errors.Newf("relation %d not found", m.OID)
+		return errors.Newf("relation %d not found", OID)
 	}
-	m.TableNamespace = rel.Namespace
-	m.TableName = rel.Name
+	m.Relation = rel
 
 	var err error
-	m.TupleData, _, err = tuple.NewData(data, InsertTupleDataType, skipByte, rel.Columns, nil)
+	m.TupleData, _, err = tuple.NewData(data, InsertTupleDataType, skipByte, rel.Columns, decodeData, nil)
 	if err != nil {
 		return errors.Wrap(err, "insert message")
 	}

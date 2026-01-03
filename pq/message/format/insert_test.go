@@ -44,18 +44,19 @@ func TestInsert_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewInsert(data, 0, false, rel, now)
+	msg, err := NewInsert(data, 0, false, rel, now, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	expected := &Insert{
-		OID:            16390,
-		XID:            0,
-		TupleData:      map[string]any{"id": int32(605), "name": "foo"},
-		TableNamespace: "public",
-		TableName:      "t",
-		MessageTime:    now,
+		Relation: rel[16390],
+		XID:      0,
+		TupleData: []any{
+			int32(605),
+			"foo",
+		},
+		MessageTime: now,
 	}
 
 	assert.Equal(t, expected, msg)

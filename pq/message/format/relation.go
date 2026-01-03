@@ -31,6 +31,24 @@ func NewRelation(data []byte, lsn pq.LSN, streamedTransaction bool) (*Relation, 
 	return msg, nil
 }
 
+func (m *Relation) GetColumnByName(name string) (*tuple.RelationColumn, bool) {
+	for i := range m.Columns {
+		if m.Columns[i].Name == name {
+			return &m.Columns[i], true
+		}
+	}
+	return nil, false
+}
+
+func (m *Relation) GetColumnIndexByName(name string) (int, bool) {
+	for i := range m.Columns {
+		if m.Columns[i].Name == name {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
 // Implements the WALMessage interface
 func (m *Relation) GetLSN() pq.LSN {
 	return m.lsn

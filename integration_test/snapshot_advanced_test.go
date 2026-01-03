@@ -223,9 +223,10 @@ collectCDC:
 		select {
 		case msg := <-messageCh:
 			if insertMsg, ok := msg.(*format.Insert); ok {
-				tableName := insertMsg.TableName
-				cdcInsertReceived[tableName] = append(cdcInsertReceived[tableName], insertMsg.TupleData)
-				t.Logf("🔄 CDC INSERT received: table=%s, id=%d", tableName, insertMsg.TupleData["id"])
+				tableName := insertMsg.Relation.Name
+				mapval := insertToMap(insertMsg)
+				cdcInsertReceived[tableName] = append(cdcInsertReceived[tableName], mapval)
+				t.Logf("🔄 CDC INSERT received: table=%s, id=%d", tableName, mapval["id"])
 			}
 		case <-cdcTimeout:
 			totalCDC := len(cdcInsertReceived[usersTable]) + len(cdcInsertReceived[ordersTable]) + len(cdcInsertReceived[productsTable])
@@ -520,8 +521,9 @@ collectCDC:
 		select {
 		case msg := <-messageCh:
 			if insertMsg, ok := msg.(*format.Insert); ok {
-				cdcInsertReceived = append(cdcInsertReceived, insertMsg.TupleData)
-				t.Logf("🔄 CDC INSERT received: id=%d", insertMsg.TupleData["id"])
+				mapval := insertToMap(insertMsg)
+				cdcInsertReceived = append(cdcInsertReceived, mapval)
+				t.Logf("🔄 CDC INSERT received: id=%d", mapval["id"])
 			}
 		case <-cdcTimeout:
 			t.Logf("⚠️  CDC timeout. Received %d/5 inserts", len(cdcInsertReceived))

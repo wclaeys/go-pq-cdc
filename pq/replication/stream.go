@@ -61,6 +61,7 @@ type stream struct {
 	snapshotLSN         pq.LSN
 	closed              atomic.Bool
 	openFromSnapshotLSN bool
+	decodeData          bool
 }
 
 func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metric, listenerFunc ListenerFunc) Streamer {
@@ -78,6 +79,7 @@ func NewStream(ctx context.Context, dsn string, cfg config.Config, m metric.Metr
 		sinkEnd:     make(chan struct{}, 1),
 		sinkStarted: make(chan struct{}, 1),
 		mu:          &sync.RWMutex{},
+		decodeData:  !cfg.DecodeDataDisabled,
 	}
 	stream.acknowledger = stream.createAcknowledger(ctx)
 	return stream
@@ -261,7 +263,7 @@ func (s *stream) sink(ctx context.Context) {
 			s.metric.SetCDCLatency(time.Since(xld.ServerTime).Nanoseconds())
 
 			var decodedMsg format.WALMessage
-			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation)
+			decodedMsg, err = message.New(xld.WALData, xld.WALStart, xld.ServerTime, s.relation, s.decodeData)
 			if err != nil {
 				logger.Debug("wal data message parsing error", "error", err)
 				continue

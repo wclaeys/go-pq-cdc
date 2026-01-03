@@ -44,22 +44,20 @@ func TestDelete_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewDelete(data, 0, false, rel, now)
+	msg, err := NewDelete(data, 0, false, rel, now, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	expected := &Delete{
-		OID:          16390,
+		Relation:     rel[16390],
 		XID:          0,
 		OldTupleType: 79,
-		OldTupleData: map[string]any{
-			"id":   int32(645),
-			"name": "foo",
+		OldTupleData: []any{
+			int32(645),
+			"foo",
 		},
-		TableNamespace: "public",
-		TableName:      "t",
-		MessageTime:    now,
+		MessageTime: now,
 	}
 
 	assert.Equal(t, expected, msg)

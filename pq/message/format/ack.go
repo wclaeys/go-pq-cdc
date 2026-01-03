@@ -6,3 +6,9 @@ type WALMessage interface {
 	GetLSN() pq.LSN
 	SetLSN(pq.LSN)
 }
+
+type DataWALMessage interface {
+	GetDecodedValue(columnIndex int) any
+	GetData() []any
+	GetRelation() *Relation
+}

@@ -10,10 +10,10 @@ type Book struct {
 	ID   int    `json:"id"`
 }
 
-func (b *Book) Map() map[string]any {
-	return map[string]any{
-		"id":   int32(b.ID),
-		"name": b.Name,
+func (b *Book) Array() []any {
+	return []any{
+		int32(b.ID),
+		b.Name,
 	}
 }
 

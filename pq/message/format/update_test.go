@@ -49,24 +49,22 @@ func TestUpdate_New(t *testing.T) {
 	}
 
 	now := time.Now()
-	msg, err := NewUpdate(data, 0, false, rel, now)
+	msg, err := NewUpdate(data, 0, false, rel, now, true)
 	require.NoError(t, err)
 
 	expected := &Update{
-		OID: 16390,
-		XID: 0,
-		NewTupleData: map[string]any{
-			"id":   int32(53),
-			"name": "bar5",
+		Relation: rel[16390],
+		XID:      0,
+		NewTupleData: []any{
+			int32(53),
+			"bar5",
 		},
 		OldTupleType: 79,
-		OldTupleData: map[string]any{
-			"id":   int32(53),
-			"name": "bar2",
+		OldTupleData: []any{
+			int32(53),
+			"bar2",
 		},
-		TableNamespace: "public",
-		TableName:      "t",
-		MessageTime:    now,
+		MessageTime: now,
 	}
 
 	assert.Equal(t, expected, msg)

@@ -71,7 +71,7 @@ func TestTruncate(t *testing.T) {
 
 		// Validate the receival of the Truncate event.
 		truncateMessage := <-messageCh
-		assert.Equal(t, "books", truncateMessage.(*format.Truncate).Relations[0].TableName)
+		assert.Equal(t, "books", truncateMessage.(*format.Truncate).Relations[0].Name)
 
 		metricTruncate, _ := fetchTruncateOpMetric()
 		assert.True(t, metricTruncate == 1)

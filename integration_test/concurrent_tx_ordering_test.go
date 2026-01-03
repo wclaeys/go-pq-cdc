@@ -79,8 +79,9 @@ func TestConcurrentTxOrdering(t *testing.T) {
 	}
 
 	// Expect B(id 601) comes before A(id 600)
-	assert.Equal(t, int32(601), first.TupleData["id"])
-	assert.Equal(t, int32(600), second.TupleData["id"])
+	idIndex, _ := first.Relation.GetColumnIndexByName("id")
+	assert.Equal(t, int32(601), first.TupleData[idIndex])
+	assert.Equal(t, int32(600), second.TupleData[idIndex])
 
 	// -------- validate confirmed_flush_lsn & restart_lsn -----------------
 	// Give connector a moment to send ACK and Postgres to advance slot

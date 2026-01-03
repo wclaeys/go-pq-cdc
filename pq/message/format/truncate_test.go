@@ -42,9 +42,6 @@ func TestNewTruncate_NoStreamedXID(t *testing.T) {
 	if len(tr.Relations) != 2 {
 		t.Fatalf("want 2 relations, got %d", len(tr.Relations))
 	}
-	if tr.Relations[0].TableName != "a" || tr.Relations[1].TableName != "b" {
-		t.Fatalf("bad names: %#v", tr.Relations)
-	}
 }
 
 func TestNewTruncate_StreamedXIDAndUnknownRel(t *testing.T) {

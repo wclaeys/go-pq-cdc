@@ -92,10 +92,14 @@ func TestCopyProtocol(t *testing.T) {
 			t.Errorf("error copying into %s table: %v", "books", err)
 		}
 
+		idIndex := -1
 		for {
 			m := <-messageCh
 			if v, ok := m.(*format.Insert); ok {
-				if v.TupleData["id"].(int32) == 16 {
+				if idIndex == -1 {
+					idIndex, _ = v.Relation.GetColumnIndexByName("id")
+				}
+				if v.TupleData[idIndex].(int32) == 16 {
 					connector.Close()
 					break
 				}
@@ -112,10 +116,14 @@ func TestCopyProtocol(t *testing.T) {
 		}
 		cancel()
 
+		idIndex := -1
 		for {
 			m := <-messageCh
 			if v, ok := m.(*format.Insert); ok {
-				if v.TupleData["id"].(int32) == 30 {
+				if idIndex == -1 {
+					idIndex, _ = v.Relation.GetColumnIndexByName("id")
+				}
+				if v.TupleData[idIndex].(int32) == 30 {
 					break
 				}
 			}

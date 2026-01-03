@@ -564,8 +564,9 @@ func TestSnapshotEmptyTable(t *testing.T) {
 			select {
 			case msg := <-messageCh:
 				if insertMsg, ok := msg.(*format.Insert); ok {
-					cdcInserts = append(cdcInserts, insertMsg.TupleData)
-					t.Logf("🔄 CDC INSERT received: id=%d", insertMsg.TupleData["id"])
+					mapval := insertToMap(insertMsg)
+					cdcInserts = append(cdcInserts, mapval)
+					t.Logf("🔄 CDC INSERT received: id=%d", mapval["id"])
 				}
 			case <-cdcTimeout:
 				t.Logf("⚠️  CDC timeout. Received %d/5 inserts", len(cdcInserts))

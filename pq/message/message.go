@@ -36,18 +36,18 @@ type Type uint8
 
 var streamedTransaction bool
 
-func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation) (format.WALMessage, error) {
+func New(data []byte, walStart pq.LSN, serverTime time.Time, relation map[uint32]*format.Relation, decodeData bool) (format.WALMessage, error) {
 	switch Type(data[0]) {
 	case BeginByte:
 		return format.NewBegin(data)
 	case CommitByte:
 		return format.NewCommit(data)
 	case InsertByte:
-		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime)
+		return format.NewInsert(data, walStart, streamedTransaction, relation, serverTime, decodeData)
 	case UpdateByte:
-		return format.NewUpdate(data, walStart, streamedTransaction, relation, serverTime)
+		return format.NewUpdate(data, walStart, streamedTransaction, relation, serverTime, decodeData)
 	case DeleteByte:
-		return format.NewDelete(data, walStart, streamedTransaction, relation, serverTime)
+		return format.NewDelete(data, walStart, streamedTransaction, relation, serverTime, decodeData)
 	case LogicalByte:
 		return format.NewLogicalMessage(data, walStart, streamedTransaction, serverTime)
 	case TruncateByte:

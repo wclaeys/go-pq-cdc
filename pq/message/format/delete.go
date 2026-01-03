@@ -10,22 +10,20 @@ import (
 )
 
 type Delete struct {
-	MessageTime    time.Time
-	OldTupleData   map[string]any
-	TableNamespace string
-	TableName      string
-	OID            uint32 // Object IDentifier of the relation (table)
-	XID            uint32 // Transaction ID of the transaction that caused this message
-	OldTupleType   uint8  // 'K' message contains a key of the old tuple; 'O' message contains the old tuple itself (all columns)
-	LSN            pq.LSN
+	MessageTime  time.Time
+	Relation     *Relation
+	OldTupleData []any
+	LSN          pq.LSN
+	XID          uint32
+	OldTupleType uint8
 }
 
-func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time) (*Delete, error) {
+func NewDelete(data []byte, lsn pq.LSN, streamedTransaction bool, relation map[uint32]*Relation, serverTime time.Time, decodeData bool) (*Delete, error) {
 	msg := &Delete{
 		MessageTime: serverTime,
 		LSN:         lsn,
 	}
-	if err := msg.decode(data, streamedTransaction, relation); err != nil {
+	if err := msg.decode(data, streamedTransaction, relation, decodeData); err != nil {
 		return nil, err
 	}
 
@@ -42,7 +40,22 @@ func (m *Delete) SetLSN(lsn pq.LSN) {
 	m.LSN = lsn
 }
 
-func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation) error {
+// Implements the DataWALMessage interface
+func (m *Delete) GetDecodedValue(columnIndex int) (any, error) {
+	return tuple.GetDecodedValue(m.OldTupleData, m.Relation.Columns, columnIndex)
+}
+
+// Implements the DataWALMessage interface
+func (m *Delete) GetData() []any {
+	return m.OldTupleData
+}
+
+// Implements the DataWALMessage interface
+func (m *Delete) GetRelation() *Relation {
+	return m.Relation
+}
+
+func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint32]*Relation, decodeData bool) error {
 	skipByte := 1
 
 	if streamedTransaction {
@@ -58,20 +71,19 @@ func (m *Delete) decode(data []byte, streamedTransaction bool, relation map[uint
 		return errors.Newf("delete message length must be at least 7 byte, but got %d", len(data))
 	}
 
-	m.OID = binary.BigEndian.Uint32(data[skipByte:])
+	OID := binary.BigEndian.Uint32(data[skipByte:])
 	skipByte += 4
 
 	m.OldTupleType = data[skipByte]
 
-	rel, ok := relation[m.OID]
+	rel, ok := relation[OID]
 	if !ok {
-		return errors.Newf("relation %d not found", m.OID)
+		return errors.Newf("relation %d not found", OID)
 	}
-	m.TableNamespace = rel.Namespace
-	m.TableName = rel.Name
+	m.Relation = rel
 
 	var err error
-	m.OldTupleData, _, err = tuple.NewData(data, m.OldTupleType, skipByte, rel.Columns, nil)
+	m.OldTupleData, _, err = tuple.NewData(data, m.OldTupleType, skipByte, rel.Columns, decodeData, nil)
 	if err != nil {
 		return errors.Wrap(err, "delete message old tuple data")
 	}
